@@ -1,0 +1,28 @@
+[project]
+name = "eyeguide"
+version = "0.1.0"
+description = "Desktop prototype for blind navigation assistance with route guidance, camera perception, and speech feedback."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.9",
+    "pyttsx3>=2.90",
+    "pyserial>=3.5",
+    "requests>=2.31",
+    "winrt-Windows.Devices.Geolocation>=3.2.1",
+    "winrt-Windows.Foundation>=3.2.1",
+]
+
+[project.optional-dependencies]
+yolo = ["ultralytics>=8.2"]
+
+[project.scripts]
+eyeguide = "eyeguide.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+default-groups = []
