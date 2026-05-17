@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import time
 
 
@@ -16,9 +16,19 @@ class Mode(str, Enum):
 class DetectionEvent:
     message: str
     category: str
+    channel: str = "vision"
     priority: int = 5
     cooldown_seconds: float = 4.0
     timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DetectionBox:
+    label: str
+    box: Tuple[int, int, int, int]
+    confidence: float = 0.0
+    track_id: Optional[int] = None
+    distance_meters: Optional[float] = None
 
 
 @dataclass
@@ -36,7 +46,9 @@ class RoutePlan:
     destination: str
     steps: List[RouteStep]
     source: str
-    travel_mode: str = "walking"
+    travel_mode: str = "foot"
+    resolved_origin_address: str = ""
+    resolved_destination_address: str = ""
     distance_meters: float = 0.0
     duration_seconds: float = 0.0
 
@@ -44,6 +56,7 @@ class RoutePlan:
 @dataclass
 class FrameAnalysis:
     events: List[DetectionEvent] = field(default_factory=list)
+    boxes: List[DetectionBox] = field(default_factory=list)
     overlays: List[str] = field(default_factory=list)
     hazard_summary: Optional[str] = None
 

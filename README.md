@@ -15,7 +15,7 @@ EyeGuide 是一个面向盲人辅助出行的电脑端原型。它把三个关�
 - `OpenCV` 视频采集与渲染
 - `pyttsx3` 本地 TTS 语音播报
 - `pyserial` 串口 GPS 接入
-- `OSRM + Nominatim` 的在线步行路线获取
+- `OSRM + Nominatim` 与 `高德 Web 服务` 的可切换在线步行路线获取
 - `Ultralytics YOLO` 可选目标检测
 - 无 YOLO 时使用 `OpenCV` 启发式规则兜底
 - 风险去重、播报优先级和冷却时间控制
@@ -57,6 +57,9 @@ uv run eyeguide
 uv sync --extra yolo
 ```
 
+Windows 上如果 `torch` 报 `c10.dll` / DLL 初始化错误，先改装 PyTorch 官方 CPU 轮子，再启用 YOLO。
+如果要装 NVIDIA GPU 版，Windows 可直接用 `uv pip install --extra-index-url https://download.pytorch.org/whl/cu130 torch==2.10.0 torchvision==0.25.0`。
+
 ## 使用说明
 
 ### 自由探索模式
@@ -68,6 +71,8 @@ uv sync --extra yolo
 ### 路线导航模式
 
 - 输入起点和终点
+- 选择导航提供方：`osm` 或 `amap`
+- 如果使用高德，请填写 `高德 Web 服务 Key`
 - 如果已经连接 GPS，可以点击“用当前 GPS 位置填入起点”
 - 点击“启动路线导航”
 - 程序会在线获取步行路线
@@ -95,6 +100,13 @@ uv sync --extra yolo
 - 等待状态栏出现“GPS 已定位”后，可一键把当前位置写入导航起点
 - 这版先解决“当前位置获取”，还没有做基于 GPS 的自动到点切换和偏航重规划
 - 为了避免误导，路线服务失败时不会自动生成演示导航
+
+## 地图服务
+
+- `osm`：使用 `Nominatim + OSRM`，适合通用测试
+- `amap`：使用高德 Web 服务，适合中国大陆环境
+- 高德模式需要提供 `Web 服务 Key`
+- 高德 Key 可以直接填在界面里，也可以通过环境变量 `AMAP_WEB_API_KEY` 或 `AMAP_KEY` 提供
 
 ## 检测策略说明
 

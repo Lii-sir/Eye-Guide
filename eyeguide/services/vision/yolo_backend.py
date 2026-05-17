@@ -5,57 +5,116 @@ from typing import List, Tuple
 
 import numpy as np
 
-try:
-    from ultralytics import YOLO
-except ImportError:  # pragma: no cover
-    YOLO = None
-
 
 @dataclass
 class BoxPrediction:
     label: str
     confidence: float
     box: Tuple[int, int, int, int]
+    track_id: int | None = None
 
 
 class YoloDetector:
-    def __init__(self, model_name: str = "yolov8n.pt") -> None:
+    def __init__(self, model_name: str = "yolo11n.pt") -> None:
+        self._load_error: str | None = None
+        self._device = self._detect_device()
         self._model = self._load_model(model_name)
 
     @property
     def is_available(self) -> bool:
         return self._model is not None
 
+    @property
+    def load_error(self) -> str | None:
+        return self._load_error
+
+    @property
+    def device(self) -> str:
+        return self._device
+
+    def _detect_device(self) -> str:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return "0"
+        except Exception:
+            pass
+        return "cpu"
+
+    def _import_yolo(self):
+        try:
+            from ultralytics import YOLO
+        except Exception as exc:  # pragma: no cover
+            self._load_error = str(exc)
+            return None
+        return YOLO
+
     def _load_model(self, model_name: str):
-        if YOLO is None:
+        yolo_cls = self._import_yolo()
+        if yolo_cls is None:
             return None
         try:
-            return YOLO(model_name)
-        except Exception:
+            return yolo_cls(model_name)
+        except Exception as exc:
+            self._load_error = str(exc)
             return None
 
     def predict(self, frame: np.ndarray) -> List[BoxPrediction]:
+        return self._infer(frame, track=False)
+
+    def track(self, frame: np.ndarray) -> List[BoxPrediction]:
+        return self._infer(frame, track=True)
+
+    def _infer(self, frame: np.ndarray, track: bool) -> List[BoxPrediction]:
         if self._model is None:
             return []
 
         try:
-            result = self._model.predict(
-                source=frame,
-                conf=0.35,
-                verbose=False,
-                imgsz=640,
-                classes=None,
-            )[0]
+            if track:
+                result = self._model.track(
+                    source=frame,
+                    persist=True,
+                    conf=0.45,
+                    iou=0.5,
+                    verbose=False,
+                    imgsz=640,
+                    classes=None,
+                    device=self._device,
+                    tracker="bytetrack.yaml",
+                )[0]
+            else:
+                result = self._model.predict(
+                    source=frame,
+                    conf=0.45,
+                    verbose=False,
+                    imgsz=640,
+                    classes=None,
+                    device=self._device,
+                )[0]
         except Exception:
             return []
 
         predictions: List[BoxPrediction] = []
         names = result.names
+        track_ids = getattr(result.boxes, "id", None)
         for box in result.boxes:
             cls_idx = int(box.cls[0].item())
             confidence = float(box.conf[0].item())
             label = names.get(cls_idx, str(cls_idx))
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            predictions.append(BoxPrediction(label=label, confidence=confidence, box=(x1, y1, x2, y2)))
+            track_id = None
+            if track_ids is not None:
+                try:
+                    track_id = int(track_ids[len(predictions)].item())
+                except Exception:
+                    track_id = None
+            predictions.append(
+                BoxPrediction(
+                    label=label,
+                    confidence=confidence,
+                    box=(x1, y1, x2, y2),
+                    track_id=track_id,
+                )
+            )
         return predictions
-

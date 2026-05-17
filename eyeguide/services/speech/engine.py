@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from queue import Empty, PriorityQueue
-from threading import Event, Thread
-from typing import Dict, Optional
+from threading import Event, Lock, Thread
+from typing import Callable, Dict, Optional
 import itertools
 import time
 
@@ -14,6 +14,13 @@ try:
 except ImportError:  # pragma: no cover
     pyttsx3 = None
 
+try:
+    import pythoncom
+    from win32com.client import Dispatch
+except ImportError:  # pragma: no cover
+    pythoncom = None
+    Dispatch = None
+
 
 @dataclass
 class SpeechMessage:
@@ -21,6 +28,207 @@ class SpeechMessage:
     priority: int
     dedupe_key: str
     cooldown_seconds: float
+    channel: str = "general"
+    interrupt: bool = False
+    generation: int = 0
+
+
+class _SapiSpeechBackend:
+    def __init__(
+        self,
+        rate: int,
+        preferred_voice_name: str | None = None,
+        preferred_output_name: str | None = None,
+    ) -> None:
+        if pythoncom is None or Dispatch is None:
+            raise RuntimeError("SAPI backend unavailable")
+
+        pythoncom.CoInitialize()
+        self._speaker = Dispatch("SAPI.SpVoice")
+        self._voice_name = "default"
+        self._output_name = "default"
+        self._speaker.Rate = max(-5, min(5, round((rate - 180) / 15)))
+        self._prefer_chinese_voice(preferred_voice_name)
+        self._prefer_audio_output(preferred_output_name)
+
+    @property
+    def name(self) -> str:
+        return "sapi"
+
+    @property
+    def voice_name(self) -> str:
+        return self._voice_name
+
+    @property
+    def output_name(self) -> str:
+        return self._output_name
+
+    def _prefer_chinese_voice(self, preferred_voice_name: str | None) -> None:
+        voices = self._speaker.GetVoices()
+        preferred_lower = preferred_voice_name.lower() if preferred_voice_name else ""
+        for index in range(voices.Count):
+            voice = voices.Item(index)
+            description = voice.GetDescription().lower()
+            voice_id = str(getattr(voice, "Id", "")).lower()
+            full_name = voice.GetDescription()
+            if preferred_lower and preferred_lower in f"{description} {voice_id}":
+                self._speaker.Voice = voice
+                self._voice_name = full_name
+                return
+            if any(token in f"{description} {voice_id}" for token in ("chinese", "huihui", "zh-cn", "xiaoxiao")):
+                self._speaker.Voice = voice
+                self._voice_name = full_name
+                return
+
+    def _prefer_audio_output(self, preferred_output_name: str | None) -> None:
+        try:
+            outputs = self._speaker.GetAudioOutputs()
+        except Exception:
+            return
+
+        preferred_tokens = (
+            "edifier",
+            "headset",
+            "headphone",
+            "耳机",
+            "speaker",
+            "扬声器",
+        )
+        avoid_tokens = (
+            "spdif",
+            "digital audio",
+            "steam streaming",
+            "nvidia",
+            "microphone",
+        )
+
+        candidates = []
+        preferred_lower = preferred_output_name.lower() if preferred_output_name else ""
+        for index in range(outputs.Count):
+            output = outputs.Item(index)
+            description = output.GetDescription()
+            lowered = description.lower()
+            score = 0
+            if preferred_lower and preferred_lower in lowered:
+                score += 100
+            if any(token in lowered for token in preferred_tokens):
+                score += 10
+            if any(token in lowered for token in avoid_tokens):
+                score -= 10
+            candidates.append((score, index, description, output))
+
+        if not candidates:
+            return
+
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        _, _, description, output = candidates[0]
+        try:
+            self._speaker.AudioOutput = output
+            self._output_name = description
+        except Exception:
+            pass
+
+    def speak(
+        self,
+        text: str,
+        interrupt: bool = False,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> None:
+        flags = 1 | (2 if interrupt else 0)
+        self._speaker.Speak(text, flags)
+        while True:
+            try:
+                done = self._speaker.WaitUntilDone(100)
+            except Exception:
+                break
+            if done:
+                break
+            if should_cancel is not None and should_cancel():
+                try:
+                    self._speaker.Speak("", 3)
+                except Exception:
+                    pass
+                break
+
+    def stop(self) -> None:
+        try:
+            self._speaker.Speak("", 3)
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        try:
+            self.stop()
+        finally:
+            pythoncom.CoUninitialize()
+
+
+class _Pyttsx3SpeechBackend:
+    def __init__(
+        self,
+        rate: int,
+        preferred_voice_name: str | None = None,
+        preferred_output_name: str | None = None,
+    ) -> None:
+        if pyttsx3 is None:
+            raise RuntimeError("pyttsx3 backend unavailable")
+        self._engine = pyttsx3.init()
+        self._voice_name = "default"
+        self._engine.setProperty("rate", rate)
+        self._prefer_chinese_voice(preferred_voice_name)
+
+    @property
+    def name(self) -> str:
+        return "pyttsx3"
+
+    @property
+    def voice_name(self) -> str:
+        return self._voice_name
+
+    def _prefer_chinese_voice(self, preferred_voice_name: str | None) -> None:
+        try:
+            voices = self._engine.getProperty("voices") or []
+        except Exception:
+            return
+
+        preferred_lower = preferred_voice_name.lower() if preferred_voice_name else ""
+        for voice in voices:
+            languages = " ".join(str(item) for item in getattr(voice, "languages", [])).lower()
+            voice_name = str(getattr(voice, "name", "")).lower()
+            voice_id = str(getattr(voice, "id", "")).lower()
+            full_name = str(getattr(voice, "name", "default"))
+            if preferred_lower and preferred_lower in f"{languages} {voice_name} {voice_id}":
+                try:
+                    self._engine.setProperty("voice", voice.id)
+                    self._voice_name = full_name
+                except Exception:
+                    pass
+                return
+            if any(token in f"{languages} {voice_name} {voice_id}" for token in ("zh", "chinese", "huihui")):
+                try:
+                    self._engine.setProperty("voice", voice.id)
+                    self._voice_name = full_name
+                except Exception:
+                    pass
+                return
+
+    def speak(
+        self,
+        text: str,
+        interrupt: bool = False,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> None:
+        self._engine.say(text)
+        self._engine.runAndWait()
+
+    def stop(self) -> None:
+        try:
+            self._engine.stop()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        self.stop()
 
 
 class SpeechEngine:
@@ -29,18 +237,34 @@ class SpeechEngine:
         self._queue: PriorityQueue[tuple[int, int, SpeechMessage]] = PriorityQueue()
         self._counter = itertools.count()
         self._stop_event = Event()
-        self._thread = Thread(target=self._run, daemon=True)
+        self._lock = Lock()
+        self._generation = 0
         self._last_spoken: Dict[str, float] = {}
-        self._engine = self._build_engine()
+        self._last_enqueued: Dict[str, float] = {}
+        self._backend = None
+        self._thread = Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def _build_engine(self):
-        if pyttsx3 is None:
-            return None
+    @property
+    def backend_name(self) -> str:
+        backend = self._backend
+        if backend is None:
+            return "console"
+        voice_name = getattr(backend, "voice_name", "default")
+        output_name = getattr(backend, "output_name", "default")
+        return f"{getattr(backend, 'name', 'unknown')}:{voice_name}@{output_name}"
 
-        engine = pyttsx3.init()
-        engine.setProperty("rate", self._config.rate)
-        return engine
+    def _build_backend(self):
+        for backend_cls in (_SapiSpeechBackend, _Pyttsx3SpeechBackend):
+            try:
+                return backend_cls(
+                    self._config.rate,
+                    self._config.preferred_voice_name,
+                    self._config.preferred_output_name,
+                )
+            except Exception:
+                continue
+        return None
 
     def speak(
         self,
@@ -48,36 +272,108 @@ class SpeechEngine:
         priority: int = 5,
         dedupe_key: Optional[str] = None,
         cooldown_seconds: float = 4.0,
+        channel: str = "general",
+        replace_pending: bool = False,
+        interrupt: bool = False,
     ) -> None:
         key = dedupe_key or text
         now = time.time()
-        if now - self._last_spoken.get(key, 0.0) < cooldown_seconds:
-            return
+        with self._lock:
+            recent_at = max(self._last_spoken.get(key, 0.0), self._last_enqueued.get(key, 0.0))
+            if now - recent_at < cooldown_seconds:
+                return
 
-        self._queue.put(
-            (
-                priority,
-                next(self._counter),
-                SpeechMessage(text, priority, key, cooldown_seconds),
+            if replace_pending:
+                self._drop_pending_locked(channel)
+
+            generation = self._generation
+            self._last_enqueued[key] = now
+            self._queue.put(
+                (
+                    priority,
+                    next(self._counter),
+                    SpeechMessage(text, priority, key, cooldown_seconds, channel, interrupt, generation),
+                )
             )
-        )
+
+    def cancel_all(self) -> None:
+        with self._lock:
+            self._generation += 1
+            self._clear_queue_locked()
+            self._last_spoken.clear()
+            self._last_enqueued.clear()
 
     def stop(self) -> None:
+        self.cancel_all()
         self._stop_event.set()
         self._thread.join(timeout=1.0)
 
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
+    def _clear_queue_locked(self) -> None:
+        while True:
             try:
-                _, _, message = self._queue.get(timeout=0.2)
+                self._queue.get_nowait()
             except Empty:
-                continue
+                break
 
-            self._last_spoken[message.dedupe_key] = time.time()
-            if self._engine is None:
-                print(f"[TTS] {message.text}")
-                continue
+    def _drop_pending_locked(self, channel: str) -> None:
+        retained: list[tuple[int, int, SpeechMessage]] = []
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Empty:
+                break
+            if item[2].channel != channel:
+                retained.append(item)
+        for item in retained:
+            self._queue.put(item)
 
-            self._engine.say(message.text)
-            self._engine.runAndWait()
+    def _run(self) -> None:
+        self._backend = self._build_backend()
+        if self._backend is None:
+            print("[TTS] backend unavailable; falling back to console output")
+        else:
+            print(f"[TTS] backend={self.backend_name}")
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    _, _, message = self._queue.get(timeout=0.2)
+                except Empty:
+                    continue
 
+                with self._lock:
+                    current_generation = self._generation
+                if message.generation != current_generation:
+                    continue
+
+                with self._lock:
+                    self._last_spoken[message.dedupe_key] = time.time()
+
+                if self._backend is None:
+                    print(f"[TTS] {message.text}")
+                    continue
+
+                try:
+                    self._backend.speak(
+                        message.text,
+                        interrupt=message.interrupt,
+                        should_cancel=lambda: self._stop_event.is_set() or message.generation != self._generation,
+                    )
+                except Exception as exc:
+                    backend_name = getattr(self._backend, "name", "unknown")
+                    print(f"[TTS ERROR:{backend_name}] {exc}")
+                    try:
+                        self._backend.close()
+                    except Exception:
+                        pass
+                    self._backend = self._build_backend()
+                    if self._backend is None:
+                        print("[TTS] backend unavailable; falling back to console output")
+                        print(f"[TTS] {message.text}")
+                    else:
+                        print(f"[TTS] backend={self.backend_name}")
+        finally:
+            if self._backend is not None:
+                try:
+                    self._backend.close()
+                except Exception:
+                    pass

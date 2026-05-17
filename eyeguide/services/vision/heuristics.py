@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from eyeguide.domain.models import DetectionEvent, FrameAnalysis
+from eyeguide.domain.models import DetectionBox, DetectionEvent, FrameAnalysis
 
 
 class HeuristicVisionDetector:
@@ -32,7 +32,13 @@ class HeuristicVisionDetector:
             center_x = x + w / 2
             if not (0.25 * width <= center_x <= 0.75 * width):
                 continue
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 180, 255), 2)
+            analysis.boxes.append(
+                DetectionBox(
+                    label="person",
+                    box=(x, y, x + w, y + h),
+                    confidence=0.5,
+                )
+            )
             priority = 2 if y + h > 0.62 * height else 4
             analysis.events.append(
                 DetectionEvent(
@@ -63,7 +69,13 @@ class HeuristicVisionDetector:
 
             global_x = x + int(width * 0.2)
             global_y = y + int(height * 0.55)
-            cv2.rectangle(frame, (global_x, global_y), (global_x + w, global_y + h), (0, 0, 255), 2)
+            analysis.boxes.append(
+                DetectionBox(
+                    label="ground_obstacle",
+                    box=(global_x, global_y, global_x + w, global_y + h),
+                    confidence=0.4,
+                )
+            )
             analysis.events.append(
                 DetectionEvent(
                     message="前方地面区域可能有障碍物，请提前绕行。",
@@ -109,15 +121,7 @@ class HeuristicVisionDetector:
         if spread < roi.shape[0] * 0.18:
             return
 
-        cv2.putText(
-            frame,
-            "Possible steps ahead",
-            (20, 95),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.75,
-            (0, 255, 255),
-            2,
-        )
+        analysis.overlays.append("Possible steps ahead")
         analysis.events.append(
             DetectionEvent(
                 message="前方可能有台阶或高度变化，请减速并确认脚下。",
@@ -126,4 +130,3 @@ class HeuristicVisionDetector:
                 cooldown_seconds=5.0,
             )
         )
-

@@ -13,6 +13,8 @@ class VisionConfig:
 @dataclass(frozen=True)
 class SpeechConfig:
     rate: int = 185
+    preferred_voice_name: str = "Microsoft Huihui Desktop - Chinese (Simplified)"
+    preferred_output_name: str = "EDIFIER Comfo SE"
 
 
 @dataclass(frozen=True)

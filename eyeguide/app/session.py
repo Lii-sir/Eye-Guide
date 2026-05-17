@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import math
+import os
+import time
 from queue import Queue
 from threading import Event, Lock, Thread
 from typing import Optional, Union
-import time
-import math
 
 import cv2
 
 from eyeguide.core.config import AppConfig
 from eyeguide.core.events import AppEvent
-from eyeguide.domain.models import GeoPoint, GpsFix, Mode, RoutePlan
+from eyeguide.domain.models import GpsFix, Mode, RoutePlan
 from eyeguide.services.location import GpsService
 from eyeguide.services.speech import SpeechEngine
 from eyeguide.services.vision import SceneAnalyzer
+from eyeguide.services.vision.rendering import UnicodeFrameRenderer
 
 
 class SessionController:
@@ -22,6 +24,7 @@ class SessionController:
         self._event_queue = event_queue
         self._speech = SpeechEngine(self._config.speech)
         self._vision = SceneAnalyzer()
+        self._renderer = UnicodeFrameRenderer()
         self._gps = GpsService(event_queue, self._config.gps)
         self._stop_event = Event()
         self._thread: Optional[Thread] = None
@@ -44,13 +47,17 @@ class SessionController:
         if self.is_running:
             raise RuntimeError("已有处理会话正在运行。")
 
+        self._speech.cancel_all()
         self._stop_event.clear()
+        self._vision = SceneAnalyzer()
         self._route_plan = route_plan
         self._route_index = 0
         self._last_auto_advance_at = 0.0
         self._last_route_fix = None
         self._thread = Thread(target=self._run_loop, args=(mode, source), daemon=True)
         self._thread.start()
+        if "YOLO" not in self._vision.backend_name:
+            self._emit("log", f"YOLO fallback reason: {self._vision.backend_detail}")
 
         self._emit("status", f"{mode.value}已启动，检测后端：{self._vision.backend_name}")
         if route_plan is not None:
@@ -64,6 +71,7 @@ class SessionController:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._speech.cancel_all()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
         self._thread = None
@@ -107,12 +115,14 @@ class SessionController:
             priority=3,
             dedupe_key=f"route:{index}:{repeat}",
             cooldown_seconds=1.0,
+            channel="navigation",
+            replace_pending=True,
         )
 
     def _run_loop(self, mode: Mode, source: Union[int, str]) -> None:
         capture_source = self._config.vision.default_camera_index if source == 0 else source
-        cap = cv2.VideoCapture(capture_source)
-        if not cap.isOpened():
+        cap = self._open_capture(capture_source)
+        if cap is None:
             self._emit("error", "无法打开摄像头或视频源。")
             self._stop_event.set()
             return
@@ -128,23 +138,33 @@ class SessionController:
             while not self._stop_event.is_set():
                 ok, frame = cap.read()
                 if not ok:
+                    reopened = self._open_capture(capture_source)
+                    if reopened is not None:
+                        cap.release()
+                        cap = reopened
+                        self._emit("log", "Camera stream dropped; reconnecting.")
+                        continue
                     self._emit("log", "视频流结束或读取失败。")
                     break
 
                 analysis = self._vision.analyze(frame)
-                self._draw_overlays(frame, analysis.overlays)
+                self._renderer.draw_panel(frame, analysis.overlays)
 
                 self._sync_route_with_location()
                 route_line = self._current_route_text()
                 if route_line:
-                    self._draw_route_banner(frame, route_line)
+                    self._renderer.draw_bottom_banner(frame, route_line)
 
-                for event in analysis.events:
+                if analysis.events:
+                    event = analysis.events[0]
                     self._speech.speak(
                         event.message,
                         priority=event.priority,
                         dedupe_key=event.category,
                         cooldown_seconds=event.cooldown_seconds,
+                        channel=event.channel,
+                        replace_pending=event.channel == "vision",
+                        interrupt=event.priority <= 1,
                     )
 
                 if time.time() - last_status_emit > self._config.vision.status_emit_interval_seconds:
@@ -164,6 +184,7 @@ class SessionController:
             cap.release()
             cv2.destroyAllWindows()
             self._stop_event.set()
+            self._speech.cancel_all()
             self._emit("status", "会话结束。")
 
     def _current_route_text(self) -> Optional[str]:
@@ -172,6 +193,30 @@ class SessionController:
                 return None
             step = self._route_plan.steps[self._route_index]
             return f"导航 {self._route_index + 1}/{len(self._route_plan.steps)}: {step.instruction}"
+
+    def _open_capture(self, source: Union[int, str]) -> Optional[cv2.VideoCapture]:
+        if isinstance(source, int):
+            backend_candidates = []
+            if os.name == "nt":
+                backend_candidates.extend(
+                    [
+                        getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY),
+                        getattr(cv2, "CAP_MSMF", cv2.CAP_ANY),
+                    ]
+                )
+            backend_candidates.append(cv2.CAP_ANY)
+            for backend in backend_candidates:
+                cap = cv2.VideoCapture(source, backend)
+                if cap.isOpened():
+                    return cap
+                cap.release()
+            return None
+
+        cap = cv2.VideoCapture(source)
+        if cap.isOpened():
+            return cap
+        cap.release()
+        return None
 
     def _sync_route_with_location(self) -> None:
         with self._route_lock:
@@ -183,7 +228,7 @@ class SessionController:
         if fix is None:
             return
         if fix.accuracy_meters is not None and fix.accuracy_meters > self._config.navigation.poor_accuracy_threshold_meters:
-            self._emit("gps_status", f"当前位置精度偏低（约 {int(fix.accuracy_meters)} 米），暂不自动推进")
+            self._emit("gps_status", f"当前定位精度较低（约 {int(fix.accuracy_meters)} 米），暂不自动推进。")
             return
 
         self._last_route_fix = fix
@@ -223,7 +268,14 @@ class SessionController:
         text = f"已到达当前节点，自动切换到第 {index} 条，共 {total} 条。{next_step.instruction}"
         self._emit("route", next_step.instruction)
         self._emit("log", text)
-        self._speech.speak(text, priority=3, dedupe_key=f"auto-route:{index}", cooldown_seconds=2.0)
+        self._speech.speak(
+            text,
+            priority=3,
+            dedupe_key=f"auto-route:{index}",
+            cooldown_seconds=2.0,
+            channel="navigation",
+            replace_pending=True,
+        )
 
     def _distance_meters(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         radius = 6371000.0
@@ -233,33 +285,6 @@ class SessionController:
         d_lambda = math.radians(lon2 - lon1)
         a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
         return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    def _draw_overlays(self, frame, overlays: list[str]) -> None:
-        for idx, line in enumerate(overlays):
-            cv2.putText(
-                frame,
-                line,
-                (20, 35 + idx * 28),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-    def _draw_route_banner(self, frame, text: str) -> None:
-        height, width = frame.shape[:2]
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, height - 78), (width, height), (0, 0, 0), -1)
-        frame[:] = cv2.addWeighted(overlay, 0.45, frame, 0.55, 0)
-        cv2.putText(
-            frame,
-            text[:72],
-            (20, height - 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.66,
-            (255, 255, 255),
-            2,
-        )
 
     def _emit(self, kind: str, value: str) -> None:
         self._event_queue.put(AppEvent(kind=kind, value=value))
