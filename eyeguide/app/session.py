@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import math
 import os
 import time
 from queue import Queue
-from threading import Event, Lock, Thread
+from threading import Event, Thread
 from typing import Optional, Union
 
 import cv2
 
+from eyeguide.app.route_guidance import RouteGuidance
 from eyeguide.core.config import AppConfig
 from eyeguide.core.events import AppEvent
-from eyeguide.domain.models import GpsFix, Mode, RoutePlan
+from eyeguide.domain.models import Mode, RoutePlan
 from eyeguide.services.location import GpsService
 from eyeguide.services.speech import SpeechEngine
 from eyeguide.services.vision import SceneAnalyzer
@@ -26,17 +26,17 @@ class SessionController:
         self._vision = SceneAnalyzer()
         self._renderer = UnicodeFrameRenderer()
         self._gps = GpsService(event_queue, self._config.gps)
+        self._route_guidance = RouteGuidance(self._config.navigation, self._speech, self._emit)
         self._stop_event = Event()
         self._thread: Optional[Thread] = None
-        self._route_lock = Lock()
-        self._route_plan: Optional[RoutePlan] = None
-        self._route_index = 0
-        self._last_auto_advance_at = 0.0
-        self._last_route_fix: Optional[GpsFix] = None
 
     @property
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def gps_service(self) -> GpsService:
+        return self._gps
 
     def start(
         self,
@@ -50,12 +50,10 @@ class SessionController:
         self._speech.cancel_all()
         self._stop_event.clear()
         self._vision = SceneAnalyzer()
-        self._route_plan = route_plan
-        self._route_index = 0
-        self._last_auto_advance_at = 0.0
-        self._last_route_fix = None
+        self._route_guidance.set_route(route_plan)
         self._thread = Thread(target=self._run_loop, args=(mode, source), daemon=True)
         self._thread.start()
+
         if "YOLO" not in self._vision.backend_name:
             self._emit("log", f"YOLO fallback reason: {self._vision.backend_detail}")
 
@@ -67,7 +65,7 @@ class SessionController:
             )
             self._emit("log", overview)
             self._emit("log", "当前为步行导航模式，提示会根据实时位置自动推进。")
-            self._announce_route_step(repeat=False)
+            self._route_guidance.announce_current()
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -83,41 +81,14 @@ class SessionController:
         self._gps.stop()
         self._speech.stop()
 
-    @property
-    def gps_service(self) -> GpsService:
-        return self._gps
-
     def next_route_step(self) -> None:
-        with self._route_lock:
-            if self._route_plan is None:
-                return
-            if self._route_index < len(self._route_plan.steps) - 1:
-                self._route_index += 1
-        self._announce_route_step(repeat=False)
+        self._route_guidance.next_step()
 
     def repeat_route_step(self) -> None:
-        self._announce_route_step(repeat=True)
+        self._route_guidance.repeat_step()
 
-    def _announce_route_step(self, repeat: bool) -> None:
-        with self._route_lock:
-            if self._route_plan is None or not self._route_plan.steps:
-                return
-            step = self._route_plan.steps[self._route_index]
-            index = self._route_index + 1
-            total = len(self._route_plan.steps)
-
-        prefix = "重复播报" if repeat else "导航提示"
-        text = f"{prefix}，第 {index} 条，共 {total} 条。{step.instruction}"
-        self._emit("route", step.instruction)
-        self._emit("log", text)
-        self._speech.speak(
-            text,
-            priority=3,
-            dedupe_key=f"route:{index}:{repeat}",
-            cooldown_seconds=1.0,
-            channel="navigation",
-            replace_pending=True,
-        )
+    def preview_speech(self, text: str) -> None:
+        self._speech.speak(text, priority=1, dedupe_key="ui:test-speech", cooldown_seconds=0.0)
 
     def _run_loop(self, mode: Mode, source: Union[int, str]) -> None:
         capture_source = self._config.vision.default_camera_index if source == 0 else source
@@ -128,10 +99,7 @@ class SessionController:
             return
 
         self._speech.speak("视觉感知已启动，按 Q 键退出。", priority=4, cooldown_seconds=1.0)
-        self._emit(
-            "log",
-            f"{mode.value}处理循环已开始。快捷键：Q 退出，N 下一条导航，R 重复导航。",
-        )
+        self._emit("log", f"{mode.value}处理循环已开始。快捷键：Q 退出，N 下一条导航，R 重复导航。")
 
         last_status_emit = 0.0
         try:
@@ -150,22 +118,26 @@ class SessionController:
                 analysis = self._vision.analyze(frame)
                 self._renderer.draw_panel(frame, analysis.overlays)
 
-                self._sync_route_with_location()
-                route_line = self._current_route_text()
+                self._route_guidance.sync_with_location(self._gps.latest_fix)
+                route_line = self._route_guidance.current_route_text()
                 if route_line:
                     self._renderer.draw_bottom_banner(frame, route_line)
 
                 if analysis.events:
                     event = analysis.events[0]
-                    self._speech.speak(
+                    # if event.channel == "vision":
+                    #     self._emit("log", f"TTS视觉入队：{event.message}")
+                    enqueued = self._speech.speak(
                         event.message,
                         priority=event.priority,
-                        dedupe_key=event.category,
+                        dedupe_key=event.dedupe_key or event.category,
                         cooldown_seconds=event.cooldown_seconds,
                         channel=event.channel,
                         replace_pending=event.channel == "vision",
-                        interrupt=event.priority <= 1,
+                        interrupt=False if event.channel == "vision" else event.priority <= 1,
                     )
+                    # if not enqueued and event.channel == "vision":
+                    #     self._emit("log", f"TTS视觉跳过：{event.message}")
 
                 if time.time() - last_status_emit > self._config.vision.status_emit_interval_seconds:
                     self._emit("hazard", analysis.hazard_summary or "环境相对安全")
@@ -186,13 +158,6 @@ class SessionController:
             self._stop_event.set()
             self._speech.cancel_all()
             self._emit("status", "会话结束。")
-
-    def _current_route_text(self) -> Optional[str]:
-        with self._route_lock:
-            if self._route_plan is None or not self._route_plan.steps:
-                return None
-            step = self._route_plan.steps[self._route_index]
-            return f"导航 {self._route_index + 1}/{len(self._route_plan.steps)}: {step.instruction}"
 
     def _open_capture(self, source: Union[int, str]) -> Optional[cv2.VideoCapture]:
         if isinstance(source, int):
@@ -217,74 +182,6 @@ class SessionController:
             return cap
         cap.release()
         return None
-
-    def _sync_route_with_location(self) -> None:
-        with self._route_lock:
-            if self._route_plan is None or self._route_index >= len(self._route_plan.steps):
-                return
-            current_step = self._route_plan.steps[self._route_index]
-
-        fix = self._gps.latest_fix
-        if fix is None:
-            return
-        if fix.accuracy_meters is not None and fix.accuracy_meters > self._config.navigation.poor_accuracy_threshold_meters:
-            self._emit("gps_status", f"当前定位精度较低（约 {int(fix.accuracy_meters)} 米），暂不自动推进。")
-            return
-
-        self._last_route_fix = fix
-        target = current_step.target
-        if target is None:
-            return
-
-        distance = self._distance_meters(
-            fix.latitude,
-            fix.longitude,
-            target.latitude,
-            target.longitude,
-        )
-        if distance > current_step.arrival_radius_meters:
-            return
-
-        now = time.time()
-        if now - self._last_auto_advance_at < self._config.navigation.auto_advance_cooldown_seconds:
-            return
-
-        self._last_auto_advance_at = now
-        self._advance_route_due_to_position(distance)
-
-    def _advance_route_due_to_position(self, distance: float) -> None:
-        with self._route_lock:
-            if self._route_plan is None:
-                return
-            if self._route_index >= len(self._route_plan.steps) - 1:
-                self._emit("route", "已接近最后一步")
-                self._speech.speak("前方已接近目的地，请留意入口。", priority=2, cooldown_seconds=5.0)
-                return
-            self._route_index += 1
-            next_step = self._route_plan.steps[self._route_index]
-            index = self._route_index + 1
-            total = len(self._route_plan.steps)
-
-        text = f"已到达当前节点，自动切换到第 {index} 条，共 {total} 条。{next_step.instruction}"
-        self._emit("route", next_step.instruction)
-        self._emit("log", text)
-        self._speech.speak(
-            text,
-            priority=3,
-            dedupe_key=f"auto-route:{index}",
-            cooldown_seconds=2.0,
-            channel="navigation",
-            replace_pending=True,
-        )
-
-    def _distance_meters(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        radius = 6371000.0
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        d_phi = math.radians(lat2 - lat1)
-        d_lambda = math.radians(lon2 - lon1)
-        a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-        return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     def _emit(self, kind: str, value: str) -> None:
         self._event_queue.put(AppEvent(kind=kind, value=value))

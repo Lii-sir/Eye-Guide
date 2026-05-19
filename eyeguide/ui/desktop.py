@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from queue import Empty, Queue
-from tkinter import filedialog, messagebox, ttk
 import os
 import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
 from eyeguide.app.session import SessionController
 from eyeguide.core.config import AppConfig
@@ -13,7 +13,7 @@ from eyeguide.domain.models import Mode, RoutePlan
 from eyeguide.services.location import LocationError
 from eyeguide.services.navigation import NavigationError, NavigationService
 from eyeguide.services.navigation.formatters import format_gps_origin
-from eyeguide.services.navigation.providers import CandidateSearchResult, LocationCandidate
+from eyeguide.services.navigation.models import CandidateSearchResult, LocationCandidate
 
 
 class EyeGuideGUI:
@@ -37,7 +37,7 @@ class EyeGuideGUI:
         self.hazard_var = tk.StringVar(value="暂无实时信息")
         self.route_var = tk.StringVar(value="暂无导航指令")
 
-        self.root.title("EyeGuide 盲人辅助指路原型")
+        self.root.title("EyeGuide 视障辅助导航原型")
         self.root.geometry("920x700")
         self.root.minsize(840, 620)
 
@@ -58,24 +58,16 @@ class EyeGuideGUI:
         ttk.Label(header, text="EyeGuide", style="Title.TLabel").pack(anchor=tk.W)
         ttk.Label(
             header,
-            text="电脑端原型：导航、摄像头感知、语音播报分层实现，便于后续接入真实定位和更强模型。",
+            text="桌面端原型：导航、摄像头感知、语音播报分层实现，便于后续接入真实定位和更强模型。",
         ).pack(anchor=tk.W, pady=(4, 0))
 
         summary = ttk.LabelFrame(container, text="实时状态", style="Card.TLabelframe")
         summary.pack(fill=tk.X, pady=(0, 12))
         ttk.Label(summary, textvariable=self.status_var).pack(anchor=tk.W, padx=12, pady=(10, 4))
-        ttk.Label(summary, textvariable=self.gps_status_var, foreground="#1f5f3d").pack(
-            anchor=tk.W, padx=12, pady=4
-        )
-        ttk.Label(summary, textvariable=self.gps_fix_var, foreground="#555555").pack(
-            anchor=tk.W, padx=12, pady=4
-        )
-        ttk.Label(summary, textvariable=self.hazard_var, foreground="#9a1f1f").pack(
-            anchor=tk.W, padx=12, pady=4
-        )
-        ttk.Label(summary, textvariable=self.route_var, foreground="#0f4c81").pack(
-            anchor=tk.W, padx=12, pady=(4, 10)
-        )
+        ttk.Label(summary, textvariable=self.gps_status_var, foreground="#1f5f3d").pack(anchor=tk.W, padx=12, pady=4)
+        ttk.Label(summary, textvariable=self.gps_fix_var, foreground="#555555").pack(anchor=tk.W, padx=12, pady=4)
+        ttk.Label(summary, textvariable=self.hazard_var, foreground="#9a1f1f").pack(anchor=tk.W, padx=12, pady=4)
+        ttk.Label(summary, textvariable=self.route_var, foreground="#0f4c81").pack(anchor=tk.W, padx=12, pady=(4, 10))
 
         body = ttk.Frame(container)
         body.pack(fill=tk.BOTH, expand=True)
@@ -117,7 +109,7 @@ class EyeGuideGUI:
             "- 摄像头窗口中按 R 重复当前导航\n"
             "- 可先连接 USB/NMEA GPS，再将当前位置作为导航起点\n"
             "- 如果串口 GPS 暂时没有定位，程序会尝试调用 Windows 定位服务\n"
-            "- 路线导航为步行导航，会根据实时位置自动推进\n"
+            "- 路线导航会根据实时位置自动推进\n"
             "- 若未安装 YOLO，可先使用 OpenCV 启发式检测验证流程\n"
         )
 
@@ -139,20 +131,13 @@ class EyeGuideGUI:
         form.columnconfigure(1, weight=1)
 
         ttk.Label(form, text="导航提供方").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        provider_box = ttk.Combobox(
-            form,
-            textvariable=self.navigation_provider_var,
-            values=["osm", "amap"],
-            state="readonly",
+        ttk.Combobox(form, textvariable=self.navigation_provider_var, values=["osm", "amap"], state="readonly").grid(
+            row=0, column=1, sticky="ew", pady=(0, 8)
         )
-        provider_box.grid(row=0, column=1, sticky="ew", pady=(0, 8))
-
         ttk.Label(form, text="高德 Web 服务 Key").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         ttk.Entry(form, textvariable=self.amap_api_key_var, show="*").grid(row=1, column=1, sticky="ew", pady=(0, 8))
-
         ttk.Label(form, text="起点").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         ttk.Entry(form, textvariable=self.origin_var).grid(row=2, column=1, sticky="ew", pady=(0, 8))
-
         ttk.Label(form, text="终点").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         ttk.Entry(form, textvariable=self.destination_var).grid(row=3, column=1, sticky="ew", pady=(0, 8))
 
@@ -171,9 +156,7 @@ class EyeGuideGUI:
         ttk.Button(frame, text="刷新串口列表", command=self.refresh_gps_ports).pack(fill=tk.X, pady=4)
         ttk.Button(frame, text="连接 GPS", command=self.start_gps).pack(fill=tk.X, pady=4)
         ttk.Button(frame, text="断开 GPS", command=self.stop_gps).pack(fill=tk.X, pady=4)
-        ttk.Button(frame, text="用当前 GPS 位置填入起点", command=self.use_current_gps_as_origin).pack(
-            fill=tk.X, pady=4
-        )
+        ttk.Button(frame, text="用当前 GPS 位置填入起点", command=self.use_current_gps_as_origin).pack(fill=tk.X, pady=4)
 
     def _build_simulation_panel(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="模拟测试设置", style="Card.TLabelframe", padding=12)
@@ -205,37 +188,18 @@ class EyeGuideGUI:
 
         provider = self.navigation_provider_var.get()
         amap_api_key = self.amap_api_key_var.get().strip() or None
-        selected_candidate: LocationCandidate | None = None
+        search_result = self._search_destination_candidates(origin, destination, provider, amap_api_key)
+        self._log_destination_candidates(search_result)
 
-        try:
-            candidates = self.navigation_service.search_candidates(
-                origin,
-                destination,
-                provider=provider,
-                amap_api_key=amap_api_key,
-                limit=5,
-            )
-        except NavigationError as exc:
-            self._append_log(f"[候选搜索失败] {exc}")
-            candidates = []
+        selected_candidate = self._select_destination_candidate(search_result.candidates)
+        if selected_candidate is None and search_result.candidates:
+            self.status_var.set("已取消导航")
+            self._append_log("已取消终点选择。")
+            return
 
-        if candidates:
-            self._append_log("已找到以下终点候选：")
-            for index, candidate in enumerate(candidates, start=1):
-                self._append_log(f"{index}. {candidate.display_name}")
-
-        if len(candidates) > 1:
-            selected_candidate = self._choose_destination_candidate(candidates)
-            if selected_candidate is None:
-                self.status_var.set("已取消导航")
-                self._append_log("已取消终点选择。")
-                return
+        if selected_candidate is not None:
             self.destination_var.set(selected_candidate.display_name)
             self._append_log(f"已选择终点候选：{selected_candidate.display_name}")
-        elif len(candidates) == 1:
-            selected_candidate = candidates[0]
-            self.destination_var.set(selected_candidate.display_name)
-            self._append_log(f"自动采用终点候选：{selected_candidate.display_name}")
 
         route_destination = selected_candidate.route_value if selected_candidate is not None else destination
 
@@ -261,10 +225,7 @@ class EyeGuideGUI:
             messagebox.showerror("路线获取失败", f"{exc}\n\n未生成真实路线，已停止启动导航。")
             return
 
-        requested_provider = provider.strip().lower()
-        actual_source = (route_plan.source or "").strip().lower()
-        if requested_provider in {"amap", "gaode", "高德"} and actual_source in {"osm", "osrm"}:
-            self._append_log("[导航回退] 高德导航不可用，已自动回退到 OSM。")
+        self._log_route_provider_fallback(provider, route_plan.source)
 
         if selected_candidate is not None:
             route_plan.destination = selected_candidate.display_name
@@ -277,24 +238,15 @@ class EyeGuideGUI:
             self._append_log(f"终点匹配：{route_plan.resolved_destination_address}")
         self._start_session(Mode.NAVIGATION, self.config.vision.default_camera_index, route_plan)
 
-    def start_navigation(self) -> None:
-        origin = self.origin_var.get().strip()
-        destination = self.destination_var.get().strip()
-        if not destination:
-            messagebox.showwarning("缺少终点", "请输入终点后再启动路线导航。")
-            return
-
-        self._append_log("正在获取终点候选，请稍候...")
-        self.status_var.set("正在匹配终点")
-        self.root.update_idletasks()
-
-        provider = self.navigation_provider_var.get()
-        amap_api_key = self.amap_api_key_var.get().strip() or None
-        selected_candidate: LocationCandidate | None = None
-        search_result = CandidateSearchResult(candidates=[], debug_lines=[], provider_used=provider)
-
+    def _search_destination_candidates(
+        self,
+        origin: str,
+        destination: str,
+        provider: str,
+        amap_api_key: str | None,
+    ) -> CandidateSearchResult:
         try:
-            search_result = self.navigation_service.search_candidates_debug(
+            return self.navigation_service.search_candidates_debug(
                 origin,
                 destination,
                 provider=provider,
@@ -303,70 +255,23 @@ class EyeGuideGUI:
             )
         except NavigationError as exc:
             self._append_log(f"[候选搜索失败] {exc}")
-        else:
-            for line in search_result.debug_lines:
-                self._append_log(line)
+            return CandidateSearchResult(candidates=[], debug_lines=[], provider_used=provider)
 
-        candidates = search_result.candidates
-        if candidates:
-            self._append_log("已找到以下终点候选：")
-            for index, candidate in enumerate(candidates, start=1):
-                self._append_log(f"{index}. {candidate.display_name}")
-
-        if len(candidates) > 1:
-            selected_candidate = self._choose_destination_candidate(candidates)
-            if selected_candidate is None:
-                self.status_var.set("已取消导航")
-                self._append_log("已取消终点选择。")
-                return
-            self.destination_var.set(selected_candidate.display_name)
-            self._append_log(f"已选择终点候选：{selected_candidate.display_name}")
-        elif len(candidates) == 1:
-            selected_candidate = candidates[0]
-            self.destination_var.set(selected_candidate.display_name)
-            self._append_log(f"自动采用终点候选：{selected_candidate.display_name}")
-
-        route_destination = selected_candidate.route_value if selected_candidate is not None else destination
-
-        self._append_log("正在获取路线，请稍候...")
-        self.status_var.set("正在生成路线")
-        self.root.update_idletasks()
-        self._append_log("当前导航模式：步行导航")
-        self._append_log(f"当前导航提供方：{provider}")
-
-        try:
-            route_plan = self.navigation_service.build_route(
-                origin,
-                route_destination,
-                prefer_online=True,
-                provider=provider,
-                amap_api_key=amap_api_key,
-            )
-        except NavigationError as exc:
-            self._append_log(f"[导航失败] 起点={origin or '当前位置'}; 终点={destination}")
-            self._append_log(f"[导航失败详情] {exc}")
-            self.status_var.set("路线生成失败")
-            self.route_var.set("暂无导航指令")
-            messagebox.showerror("路线获取失败", f"{exc}\n\n未生成真实路线，已停止启动导航。")
+    def _log_destination_candidates(self, search_result: CandidateSearchResult) -> None:
+        for line in search_result.debug_lines:
+            self._append_log(line)
+        if not search_result.candidates:
             return
+        self._append_log("已找到以下终点候选：")
+        for index, candidate in enumerate(search_result.candidates, start=1):
+            self._append_log(f"{index}. {candidate.display_name}")
 
-        requested_provider = provider.strip().lower()
-        actual_source = (route_plan.source or "").strip().lower()
-        if requested_provider in {"amap", "gaode", "高德"} and actual_source in {"osm", "osrm"}:
-            self._append_log("[导航回退] 高德导航不可用，已自动回退到 OSM。")
+    def _select_destination_candidate(self, candidates: list[LocationCandidate]) -> LocationCandidate | None:
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
 
-        if selected_candidate is not None:
-            route_plan.destination = selected_candidate.display_name
-            route_plan.resolved_destination_address = selected_candidate.display_name
-
-        self.route_var.set(route_plan.steps[0].instruction if route_plan.steps else "暂无导航指令")
-        if route_plan.resolved_origin_address:
-            self._append_log(f"起点匹配：{route_plan.resolved_origin_address}")
-        if route_plan.resolved_destination_address:
-            self._append_log(f"终点匹配：{route_plan.resolved_destination_address}")
-        self._start_session(Mode.NAVIGATION, self.config.vision.default_camera_index, route_plan)
-
-    def _choose_destination_candidate(self, candidates: list[LocationCandidate]) -> LocationCandidate | None:
         dialog = tk.Toplevel(self.root)
         dialog.title("选择终点候选")
         dialog.transient(self.root)
@@ -431,12 +336,7 @@ class EyeGuideGUI:
 
     def test_speech(self) -> None:
         self._append_log("正在测试语音播报...")
-        self.controller._speech.speak(
-            "这是一条语音测试。如果你能听到这句话，说明播报已经恢复。",
-            priority=1,
-            dedupe_key="ui:test-speech",
-            cooldown_seconds=0.0,
-        )
+        self.controller.preview_speech("这是一条语音测试。如果你能听到这句话，说明播报已经恢复。")
 
     def refresh_gps_ports(self) -> None:
         ports = self.controller.gps_service.list_available_ports()
@@ -504,6 +404,10 @@ class EyeGuideGUI:
             pass
         finally:
             self.root.after(self.config.ui_poll_interval_ms, self._poll_events)
+
+    def _log_route_provider_fallback(self, requested_provider: str, actual_source: str) -> None:
+        if requested_provider.strip().lower() in {"amap", "gaode", "高德"} and actual_source.strip().lower() in {"osm", "osrm"}:
+            self._append_log("[导航回退] 高德导航不可用，已自动回退到 OSM。")
 
     def _append_log(self, text: str) -> None:
         self.log_box.configure(state=tk.NORMAL)

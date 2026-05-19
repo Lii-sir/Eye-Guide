@@ -18,7 +18,7 @@ HAZARD_LABELS = {
     "bus": "公交车",
     "truck": "卡车",
     "chair": "椅子",
-    "bench": "长椅",
+    "bench": "长凳",
     "suitcase": "行李箱",
     "backpack": "背包",
     "potted plant": "障碍物",
@@ -26,6 +26,8 @@ HAZARD_LABELS = {
 }
 
 ANNOUNCE_DISTANCE_METERS = 2.0
+MIN_DETECTION_CENTER_RATIO = 0.08
+MAX_DETECTION_CENTER_RATIO = 0.92
 
 
 class SceneAnalyzer:
@@ -56,11 +58,12 @@ class SceneAnalyzer:
     def analyze(self, frame: np.ndarray) -> FrameAnalysis:
         self._frame_index += 1
         analysis = FrameAnalysis()
+        height, width = frame.shape[:2]
 
         predictions = self._yolo.track(frame)
         if predictions:
             depth_estimate = self._depth.estimate(frame)
-            analysis.boxes.extend(self._predictions_to_boxes(depth_estimate, predictions))
+            analysis.boxes.extend(self._predictions_to_boxes(depth_estimate, predictions, width))
             self._collect_yolo_events(frame, analysis.boxes, analysis)
         else:
             self._heuristics.collect_people_events(frame, analysis, self._frame_index)
@@ -88,6 +91,7 @@ class SceneAnalyzer:
         self,
         depth_estimate: DepthEstimate | None,
         predictions: list[BoxPrediction],
+        frame_width: int,
     ) -> list[DetectionBox]:
         boxes: list[DetectionBox] = []
         for prediction in predictions:
@@ -99,6 +103,7 @@ class SceneAnalyzer:
                     confidence=prediction.confidence,
                     track_id=prediction.track_id,
                     distance_meters=distance_meters,
+                    relative_direction=self._relative_direction(prediction.box, frame_width),
                 )
             )
         return boxes
@@ -124,7 +129,8 @@ class SceneAnalyzer:
             area_ratio = box_area / frame_area
             center_x = (x1 + x2) / 2
             bottom_ratio = y2 / float(height)
-            if not (0.25 * width <= center_x <= 0.75 * width):
+            center_ratio = center_x / float(width)
+            if not (MIN_DETECTION_CENTER_RATIO <= center_ratio <= MAX_DETECTION_CENTER_RATIO):
                 continue
 
             distance_meters = box.distance_meters
@@ -133,7 +139,7 @@ class SceneAnalyzer:
 
             distance_text, priority = self._classify_distance(distance_meters, bottom_ratio, area_ratio)
             label = HAZARD_LABELS[box.label]
-            object_tag = f" #{box.track_id}" if box.track_id is not None else ""
+            direction_text = box.relative_direction or self._relative_direction(box.box, width)
             distance_band = "near"
             if distance_meters <= 0.8:
                 distance_band = "very-near"
@@ -141,11 +147,12 @@ class SceneAnalyzer:
                 distance_band = "close"
             analysis.events.append(
                 DetectionEvent(
-                    message=f"{distance_text}发现{label}{object_tag}，约 {distance_meters:.1f} 米，请注意避让。",
-                    category=f"object:{box.label}:{distance_band}",
+                    message=f"注意，{direction_text}，{label}，{distance_meters:.1f}米",
+                    category=f"object:{box.label}:{distance_band}:{direction_text}",
+                    dedupe_key=f"object:{box.label}:{direction_text}:{distance_band}",
                     channel="vision",
                     priority=priority,
-                    cooldown_seconds=4.0,
+                    cooldown_seconds=5.5,
                 )
             )
 
@@ -157,8 +164,8 @@ class SceneAnalyzer:
         for box in boxes:
             color = palette.get(box.label, (40, 210, 40))
             label = HAZARD_LABELS.get(box.label, box.label)
-            if box.track_id is not None:
-                label = f"{label} #{box.track_id}"
+            if box.relative_direction:
+                label = f"{label} {box.relative_direction}"
             if box.distance_meters is not None:
                 label = f"{label} {box.distance_meters:.1f}m"
             elif box.confidence > 0:
@@ -172,7 +179,20 @@ class SceneAnalyzer:
         area_ratio: float,
     ) -> tuple[str, int]:
         if distance_meters <= 0.8 or bottom_ratio > 0.75 or area_ratio > 0.10:
-            return "非常近", 1
+            return "距离非常近", 1
         if distance_meters <= 1.4 or bottom_ratio > 0.62 or area_ratio > 0.05:
-            return "较近", 2
-        return "前方近距离", 3
+            return "距离较近", 2
+        return "距离不远", 3
+
+    def _relative_direction(self, box: tuple[int, int, int, int], frame_width: int) -> str:
+        x1, _, x2, _ = box
+        center_ratio = ((x1 + x2) / 2) / float(max(frame_width, 1))
+        if center_ratio < 0.2:
+            return "左侧"
+        if center_ratio < 0.4:
+            return "左前方"
+        if center_ratio <= 0.6:
+            return "正前方"
+        if center_ratio <= 0.8:
+            return "右前方"
+        return "右侧"

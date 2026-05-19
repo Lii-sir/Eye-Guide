@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 from eyeguide.domain.models import RoutePlan
-from eyeguide.services.navigation.providers import (
-    AMapRouteProvider,
-    CandidateSearchResult,
-    DemoRouteProvider,
-    LocationCandidate,
-    NavigationError,
-    OSRMRouteProvider,
-    RouteProvider,
-)
+from eyeguide.services.navigation.amap_provider import AMapRouteProvider
+from eyeguide.services.navigation.demo_provider import DemoRouteProvider
+from eyeguide.services.navigation.models import CandidateSearchResult, LocationCandidate, NavigationError, RouteProvider
+from eyeguide.services.navigation.osrm_provider import OSRMRouteProvider
 
 
 class NavigationService:

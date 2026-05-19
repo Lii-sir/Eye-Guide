@@ -133,22 +133,23 @@ class _SapiSpeechBackend:
         text: str,
         interrupt: bool = False,
         should_cancel: Callable[[], bool] | None = None,
-    ) -> None:
+    ) -> bool:
         flags = 1 | (2 if interrupt else 0)
         self._speaker.Speak(text, flags)
         while True:
             try:
                 done = self._speaker.WaitUntilDone(100)
             except Exception:
-                break
+                return False
             if done:
-                break
+                return True
             if should_cancel is not None and should_cancel():
                 try:
                     self._speaker.Speak("", 3)
                 except Exception:
                     pass
-                break
+                return False
+        return True
 
     def stop(self) -> None:
         try:
@@ -217,9 +218,10 @@ class _Pyttsx3SpeechBackend:
         text: str,
         interrupt: bool = False,
         should_cancel: Callable[[], bool] | None = None,
-    ) -> None:
+    ) -> bool:
         self._engine.say(text)
         self._engine.runAndWait()
+        return True
 
     def stop(self) -> None:
         try:
@@ -237,10 +239,12 @@ class SpeechEngine:
         self._queue: PriorityQueue[tuple[int, int, SpeechMessage]] = PriorityQueue()
         self._counter = itertools.count()
         self._stop_event = Event()
+        self._cancel_current = Event()
         self._lock = Lock()
         self._generation = 0
         self._last_spoken: Dict[str, float] = {}
         self._last_enqueued: Dict[str, float] = {}
+        self._current_message: SpeechMessage | None = None
         self._backend = None
         self._thread = Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -275,16 +279,31 @@ class SpeechEngine:
         channel: str = "general",
         replace_pending: bool = False,
         interrupt: bool = False,
-    ) -> None:
+    ) -> bool:
         key = dedupe_key or text
         now = time.time()
         with self._lock:
             recent_at = max(self._last_spoken.get(key, 0.0), self._last_enqueued.get(key, 0.0))
             if now - recent_at < cooldown_seconds:
-                return
+                return False
 
             if replace_pending:
+                if (
+                    channel == "vision"
+                    and self._current_message is not None
+                    and self._current_message.channel != "vision"
+                    and self._has_pending_channel_locked("vision")
+                ):
+                    return False
                 self._drop_pending_locked(channel)
+            if interrupt:
+                self._cancel_current.set()
+                backend = self._backend
+                if backend is not None:
+                    try:
+                        backend.stop()
+                    except Exception:
+                        pass
 
             generation = self._generation
             self._last_enqueued[key] = now
@@ -295,13 +314,22 @@ class SpeechEngine:
                     SpeechMessage(text, priority, key, cooldown_seconds, channel, interrupt, generation),
                 )
             )
+        return True
 
     def cancel_all(self) -> None:
         with self._lock:
             self._generation += 1
+            self._cancel_current.set()
+            self._current_message = None
             self._clear_queue_locked()
             self._last_spoken.clear()
             self._last_enqueued.clear()
+            backend = self._backend
+            if backend is not None:
+                try:
+                    backend.stop()
+                except Exception:
+                    pass
 
     def stop(self) -> None:
         self.cancel_all()
@@ -327,6 +355,21 @@ class SpeechEngine:
         for item in retained:
             self._queue.put(item)
 
+    def _has_pending_channel_locked(self, channel: str) -> bool:
+        retained: list[tuple[int, int, SpeechMessage]] = []
+        has_pending = False
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Empty:
+                break
+            retained.append(item)
+            if item[2].channel == channel:
+                has_pending = True
+        for item in retained:
+            self._queue.put(item)
+        return has_pending
+
     def _run(self) -> None:
         self._backend = self._build_backend()
         if self._backend is None:
@@ -346,19 +389,36 @@ class SpeechEngine:
                     continue
 
                 with self._lock:
-                    self._last_spoken[message.dedupe_key] = time.time()
+                    self._cancel_current.clear()
+                    self._current_message = message
 
                 if self._backend is None:
                     print(f"[TTS] {message.text}")
+                    with self._lock:
+                        if self._current_message is message:
+                            self._last_spoken[message.dedupe_key] = time.time()
+                            self._current_message = None
                     continue
 
                 try:
-                    self._backend.speak(
+                    completed = self._backend.speak(
                         message.text,
                         interrupt=message.interrupt,
-                        should_cancel=lambda: self._stop_event.is_set() or message.generation != self._generation,
+                        should_cancel=lambda: (
+                            self._stop_event.is_set()
+                            or message.generation != self._generation
+                            or self._cancel_current.is_set()
+                        ),
                     )
+                    with self._lock:
+                        if self._current_message is message:
+                            if completed:
+                                self._last_spoken[message.dedupe_key] = time.time()
+                            self._current_message = None
                 except Exception as exc:
+                    with self._lock:
+                        if self._current_message is message:
+                            self._current_message = None
                     backend_name = getattr(self._backend, "name", "unknown")
                     print(f"[TTS ERROR:{backend_name}] {exc}")
                     try:

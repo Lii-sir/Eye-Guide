@@ -11,6 +11,18 @@ class HeuristicVisionDetector:
         self._hog = cv2.HOGDescriptor()
         self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
 
+    def _relative_direction(self, x1: int, x2: int, width: int) -> str:
+        center_ratio = ((x1 + x2) / 2) / float(max(width, 1))
+        if center_ratio < 0.2:
+            return "左侧"
+        if center_ratio < 0.4:
+            return "左前方"
+        if center_ratio <= 0.6:
+            return "正前方"
+        if center_ratio <= 0.8:
+            return "右前方"
+        return "右侧"
+
     def collect_people_events(
         self,
         frame: np.ndarray,
@@ -29,23 +41,23 @@ class HeuristicVisionDetector:
         )
         height, width = frame.shape[:2]
         for (x, y, w, h) in rects:
-            center_x = x + w / 2
-            if not (0.25 * width <= center_x <= 0.75 * width):
-                continue
+            relative_direction = self._relative_direction(x, x + w, width)
             analysis.boxes.append(
                 DetectionBox(
                     label="person",
                     box=(x, y, x + w, y + h),
                     confidence=0.5,
+                    relative_direction=relative_direction,
                 )
             )
             priority = 2 if y + h > 0.62 * height else 4
             analysis.events.append(
                 DetectionEvent(
-                    message="前方检测到行人，请减速通过。",
-                    category="person",
+                    message=f"注意，{relative_direction}，行人",
+                    category=f"person:{relative_direction}",
+                    dedupe_key=f"person:{relative_direction}",
                     priority=priority,
-                    cooldown_seconds=4.0,
+                    cooldown_seconds=5.0,
                 )
             )
 
@@ -74,14 +86,16 @@ class HeuristicVisionDetector:
                     label="ground_obstacle",
                     box=(global_x, global_y, global_x + w, global_y + h),
                     confidence=0.4,
+                    relative_direction="正前方",
                 )
             )
             analysis.events.append(
                 DetectionEvent(
-                    message="前方地面区域可能有障碍物，请提前绕行。",
-                    category="ground_obstacle",
+                    message="注意，正前方，障碍物",
+                    category="ground_obstacle:front",
+                    dedupe_key="ground_obstacle:front",
                     priority=2,
-                    cooldown_seconds=4.5,
+                    cooldown_seconds=5.5,
                 )
             )
             break
@@ -124,9 +138,10 @@ class HeuristicVisionDetector:
         analysis.overlays.append("Possible steps ahead")
         analysis.events.append(
             DetectionEvent(
-                message="前方可能有台阶或高度变化，请减速并确认脚下。",
-                category="step_risk",
+                message="注意，正前方，台阶",
+                category="step_risk:front",
+                dedupe_key="step_risk:front",
                 priority=1,
-                cooldown_seconds=5.0,
+                cooldown_seconds=6.0,
             )
         )

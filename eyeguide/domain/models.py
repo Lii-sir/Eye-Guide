@@ -16,6 +16,7 @@ class Mode(str, Enum):
 class DetectionEvent:
     message: str
     category: str
+    dedupe_key: Optional[str] = None
     channel: str = "vision"
     priority: int = 5
     cooldown_seconds: float = 4.0
@@ -29,6 +30,7 @@ class DetectionBox:
     confidence: float = 0.0
     track_id: Optional[int] = None
     distance_meters: Optional[float] = None
+    relative_direction: Optional[str] = None
 
 
 @dataclass

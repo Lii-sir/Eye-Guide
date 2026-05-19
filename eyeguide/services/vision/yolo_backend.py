@@ -15,7 +15,7 @@ class BoxPrediction:
 
 
 class YoloDetector:
-    def __init__(self, model_name: str = "yolo11n.pt") -> None:
+    def __init__(self, model_name: str = "yolo26n.pt") -> None:
         self._load_error: str | None = None
         self._device = self._detect_device()
         self._model = self._load_model(model_name)
