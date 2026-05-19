@@ -174,6 +174,75 @@ EyeGuide/
 - 首次运行深度模型时，可能需要从 Hugging Face 下载模型权重；下载完成后通常会缓存到本地。
 - 如果控制台中文日志出现乱码，可在 PowerShell 中先执行 `chcp 65001` 再启动程序。
 
+## Windows 打包与安装
+
+如果你希望把项目交给别人直接安装使用，当前仓库已经补好了 `PyInstaller + Inno Setup` 打包方案。
+
+### 1. 安装打包依赖
+
+先安装项目依赖，并额外带上 YOLO 与打包工具：
+
+```bash
+uv sync --extra yolo --extra package
+```
+
+### 2. 可选：预下载深度模型到项目目录
+
+如果你希望安装包在目标机器上开箱即用，不依赖首次联网下载 `Depth Anything V2`，可以先把模型缓存到仓库里的 `models/depth-anything-v2/`：
+
+```bash
+uv run python .\packaging\cache_depth_model.py
+```
+
+说明：
+- 如果构建时存在 `models/depth-anything-v2/`，打包脚本会把它一起打进安装包。
+- 如果构建时不存在这个目录，程序在新机器上首次运行时会尝试从 Hugging Face 下载模型并缓存。
+
+### 3. 生成可分发的 exe 目录
+
+执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\packaging\build_windows.ps1
+```
+
+生成结果：
+- `dist\EyeGuide\EyeGuide.exe`
+- 以及它运行所需的全部依赖文件
+
+当前默认使用 `onedir` 方式打包，而不是单文件 `onefile`。这样对 `torch / ultralytics / opencv` 这类大体积依赖更稳定，也更适合桌面 GUI 程序。
+
+### 4. 生成安装程序
+
+如果你希望给别人一个“下一步、下一步”式的安装包，还需要先安装 `Inno Setup 6`，然后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\packaging\build_windows.ps1 -BuildInstaller
+```
+
+生成结果：
+- `dist\EyeGuide-Setup.exe`
+
+安装后，用户可以通过开始菜单或桌面快捷方式启动程序。
+
+### 5. 打包相关文件位置
+
+- `packaging/eyeguide.spec`
+  负责定义 PyInstaller 如何收集依赖、模型权重和资源文件
+- `packaging/build_windows.ps1`
+  Windows 一键打包脚本
+- `packaging/EyeGuide.iss`
+  Inno Setup 安装包脚本
+- `packaging/cache_depth_model.py`
+  把 Depth Anything V2 下载到项目本地，便于离线分发
+
+### 6. 打包前建议
+
+- 尽量在和目标用户相同的大版本 Windows 环境下打包
+- 如果你希望分发 GPU 版，打包环境本身就应该已经安装好对应 CUDA 版本的 `torch` / `torchvision`
+- `yolo26n.pt` 与 `yolo11n.pt` 会自动跟随打包
+- 高德 Key、GPS 串口号、耳机输出设备名称这些运行时配置，仍然需要在目标机器实际使用时按环境调整
+
 ## 后续可扩展方向
 
 - 引入更强的多模态感知模型，提高对台阶、路沿、坑洼、红绿灯和盲道的识别能力。

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
+
+from eyeguide.core.paths import bundled_path, first_existing_path
 
 
 @dataclass
@@ -18,7 +21,7 @@ class YoloDetector:
     def __init__(self, model_name: str = "yolo26n.pt") -> None:
         self._load_error: str | None = None
         self._device = self._detect_device()
-        self._model = self._load_model(model_name)
+        self._model = self._load_model(self._resolve_model_path(model_name))
 
     @property
     def is_available(self) -> bool:
@@ -59,6 +62,15 @@ class YoloDetector:
         except Exception as exc:
             self._load_error = str(exc)
             return None
+
+    def _resolve_model_path(self, model_name: str) -> str:
+        model_path = first_existing_path(
+            Path(model_name),
+            bundled_path(model_name),
+        )
+        if model_path is None:
+            return model_name
+        return str(model_path)
 
     def predict(self, frame: np.ndarray) -> List[BoxPrediction]:
         return self._infer(frame, track=False)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+from eyeguide.core.paths import bundled_path
 
 
 @dataclass
@@ -54,13 +57,14 @@ class DepthAnythingV2MetricEstimator:
             import torch
             from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
+            model_source, local_files_only = self._resolve_model_source()
             self._processor = AutoImageProcessor.from_pretrained(
-                self._model_name,
-                local_files_only=True,
+                model_source,
+                local_files_only=local_files_only,
             )
             self._model = AutoModelForDepthEstimation.from_pretrained(
-                self._model_name,
-                local_files_only=True,
+                model_source,
+                local_files_only=local_files_only,
             )
             self._model = self._model.to(self._device).eval()
             self._torch = torch
@@ -68,6 +72,17 @@ class DepthAnythingV2MetricEstimator:
             self._load_error = str(exc)
             self._processor = None
             self._model = None
+
+    def _resolve_model_source(self) -> tuple[str, bool]:
+        bundled_model_dir = bundled_path("models", "depth-anything-v2")
+        if bundled_model_dir.exists():
+            return str(bundled_model_dir), True
+
+        configured_path = Path(self._model_name)
+        if configured_path.exists():
+            return str(configured_path), True
+
+        return self._model_name, False
 
     def estimate(self, frame_bgr: np.ndarray) -> DepthEstimate | None:
         if not self.is_available:
