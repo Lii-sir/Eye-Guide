@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty, Queue
 import os
@@ -36,6 +37,9 @@ class EyeGuideGUI:
         self.gps_fix_var = tk.StringVar(value="暂无定位坐标")
         self.hazard_var = tk.StringVar(value="暂无实时信息")
         self.route_var = tk.StringVar(value="暂无导航指令")
+        self.object_speech_dedup_mode_var = tk.StringVar(
+            value=self._dedup_mode_label_from_value(self.config.vision.object_speech_dedup_mode)
+        )
 
         self.root.title("EyeGuide 视障辅助导航原型")
         self.root.geometry("920x700")
@@ -64,10 +68,18 @@ class EyeGuideGUI:
         summary = ttk.LabelFrame(container, text="实时状态", style="Card.TLabelframe")
         summary.pack(fill=tk.X, pady=(0, 12))
         ttk.Label(summary, textvariable=self.status_var).pack(anchor=tk.W, padx=12, pady=(10, 4))
-        ttk.Label(summary, textvariable=self.gps_status_var, foreground="#1f5f3d").pack(anchor=tk.W, padx=12, pady=4)
-        ttk.Label(summary, textvariable=self.gps_fix_var, foreground="#555555").pack(anchor=tk.W, padx=12, pady=4)
-        ttk.Label(summary, textvariable=self.hazard_var, foreground="#9a1f1f").pack(anchor=tk.W, padx=12, pady=4)
-        ttk.Label(summary, textvariable=self.route_var, foreground="#0f4c81").pack(anchor=tk.W, padx=12, pady=(4, 10))
+        ttk.Label(summary, textvariable=self.gps_status_var, foreground="#1f5f3d").pack(
+            anchor=tk.W, padx=12, pady=4
+        )
+        ttk.Label(summary, textvariable=self.gps_fix_var, foreground="#555555").pack(
+            anchor=tk.W, padx=12, pady=4
+        )
+        ttk.Label(summary, textvariable=self.hazard_var, foreground="#9a1f1f").pack(
+            anchor=tk.W, padx=12, pady=4
+        )
+        ttk.Label(summary, textvariable=self.route_var, foreground="#0f4c81").pack(
+            anchor=tk.W, padx=12, pady=(4, 10)
+        )
 
         body = ttk.Frame(container)
         body.pack(fill=tk.BOTH, expand=True)
@@ -94,6 +106,7 @@ class EyeGuideGUI:
         left_canvas.bind("<Configure>", _resize_left_window)
 
         self._build_mode_panel(left)
+        self._build_vision_panel(left)
         self._build_gps_panel(left)
         self._build_navigation_panel(left)
         self._build_simulation_panel(left)
@@ -121,6 +134,24 @@ class EyeGuideGUI:
         ttk.Button(frame, text="启动模拟测试", command=self.start_simulation).pack(fill=tk.X, pady=4)
         ttk.Button(frame, text="测试语音播报", command=self.test_speech).pack(fill=tk.X, pady=4)
         ttk.Button(frame, text="停止当前会话", command=self.stop_session).pack(fill=tk.X, pady=(12, 4))
+
+    def _build_vision_panel(self, parent: ttk.Frame) -> None:
+        frame = ttk.LabelFrame(parent, text="感知设置", style="Card.TLabelframe", padding=12)
+        frame.pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(frame, text="普通物体播报去重").pack(anchor=tk.W)
+        combo = ttk.Combobox(
+            frame,
+            textvariable=self.object_speech_dedup_mode_var,
+            values=["详细播报", "简单播报"],
+            state="readonly",
+        )
+        combo.pack(fill=tk.X, pady=(4, 4))
+        combo.bind("<<ComboboxSelected>>", self._on_object_speech_dedup_mode_changed)
+        ttk.Label(
+            frame,
+            text="详细播报：按物体类别、方向、距离挡位去重\n简单播报：按物体类别、距离挡位去重",
+            foreground="#555555",
+        ).pack(anchor=tk.W)
 
     def _build_navigation_panel(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="路线导航设置", style="Card.TLabelframe", padding=12)
@@ -380,6 +411,24 @@ class EyeGuideGUI:
         except Exception as exc:
             messagebox.showerror("启动失败", str(exc))
 
+    def _dedup_mode_label_from_value(self, value: str) -> str:
+        return "简单播报" if value.strip().lower() == "simple" else "详细播报"
+
+    def _dedup_mode_value_from_label(self, label: str) -> str:
+        return "simple" if label == "简单播报" else "detailed"
+
+    def _on_object_speech_dedup_mode_changed(self, _event=None) -> None:
+        mode_value = self._dedup_mode_value_from_label(self.object_speech_dedup_mode_var.get())
+        vision_config = replace(self.config.vision, object_speech_dedup_mode=mode_value)
+        self.config = replace(self.config, vision=vision_config)
+        self.controller._config = self.config
+
+        message = f"普通物体播报去重已切换为：{self.object_speech_dedup_mode_var.get()}"
+        if self.controller.is_running:
+            message += "，将在下次启动会话时生效"
+        self.status_var.set(message)
+        self._append_log(message)
+
     def _poll_events(self) -> None:
         try:
             while True:
@@ -406,7 +455,10 @@ class EyeGuideGUI:
             self.root.after(self.config.ui_poll_interval_ms, self._poll_events)
 
     def _log_route_provider_fallback(self, requested_provider: str, actual_source: str) -> None:
-        if requested_provider.strip().lower() in {"amap", "gaode", "高德"} and actual_source.strip().lower() in {"osm", "osrm"}:
+        if requested_provider.strip().lower() in {"amap", "gaode", "高德"} and actual_source.strip().lower() in {
+            "osm",
+            "osrm",
+        }:
             self._append_log("[导航回退] 高德导航不可用，已自动回退到 OSM。")
 
     def _append_log(self, text: str) -> None:

@@ -10,6 +10,7 @@ class VisionConfig:
     status_emit_interval_seconds: float = 1.0
     parallel_inference_enabled: bool = True
     show_performance_overlay: bool = True
+    object_speech_dedup_mode: str = "detailed"
     yolo_device_preference: str = "gpu"
     yolo_infer_interval_frames: int = 4
     depth_device_preference: str = "gpu"

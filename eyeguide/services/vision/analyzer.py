@@ -335,11 +335,16 @@ class SceneAnalyzer:
                 distance_band = "very-near"
             elif distance_meters <= 1.4:
                 distance_band = "close"
+
             analysis.events.append(
                 DetectionEvent(
                     message=f"注意，{direction_text}，{label}，{distance_meters:.1f}米",
                     category=f"object:{box.label}:{distance_band}:{direction_text}",
-                    dedupe_key=f"object:{box.label}:{direction_text}:{distance_band}",
+                    dedupe_key=self._object_event_dedupe_key(
+                        box.label,
+                        direction_text,
+                        distance_band,
+                    ),
                     channel="vision",
                     priority=priority,
                     cooldown_seconds=5.5,
@@ -398,6 +403,17 @@ class SceneAnalyzer:
         if cached:
             return f"{label} 缓存"
         return f"{label} {duration_ms:.0f}ms"
+
+    def _object_event_dedupe_key(
+        self,
+        label: str,
+        direction_text: str,
+        distance_band: str,
+    ) -> str:
+        mode = self._config.object_speech_dedup_mode.strip().lower()
+        if mode == "simple":
+            return f"object:{label}:{distance_band}"
+        return f"object:{label}:{direction_text}:{distance_band}"
 
     def _classify_distance(
         self,
