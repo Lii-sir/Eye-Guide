@@ -18,7 +18,7 @@ class BoxPrediction:
 
 
 class YoloDetector:
-    def __init__(self, model_name: str = "yolo26n.pt", preferred_device: str = "auto") -> None:
+    def __init__(self, model_name: str = "models/YOLO/yolo26n.pt", preferred_device: str = "auto") -> None:
         self._load_error: str | None = None
         self._preferred_device = preferred_device.strip().lower()
         self._device = self._detect_device()

@@ -16,8 +16,8 @@ class VisionConfig:
     depth_infer_interval_frames: int = 4
     blind_road_enabled: bool = True
     blind_road_device_preference: str = "cpu"
-    blind_road_model_config_path: str = "training/paddleseg/pp_mobileseg_tiny_blind_road_512x512.yml"
-    blind_road_weights_dir: str = "training/paddleseg/output/blind_road_pp_mobileseg_tiny/best_model"
+    blind_road_model_config_path: str = "models/blind_road_pp_mobileseg_tiny/pp_mobileseg_tiny_blind_road_512x512.yml"
+    blind_road_weights_dir: str = "models/blind_road_pp_mobileseg_tiny"
     blind_road_paddleseg_root: str = ".tmp/PaddleSeg"
     blind_road_input_size: int = 512
     blind_road_roi_top_ratio: float = 0.42
