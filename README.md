@@ -1,251 +1,389 @@
 # EyeGuide
 
-EyeGuide 是一个面向视障出行辅助场景的桌面原型系统。它把摄像头感知、步行路线导航、GPS 定位和语音播报串成一条完整链路，用来验证“看见环境、理解风险、规划路线、实时提醒”这一类辅助出行能力在电脑端的实现方式。
+<p align="center">
+  <strong>面向盲人出行辅助的桌面视觉导航原型</strong><br/>
+  将 <code>YOLO</code>、<code>Depth Anything V2</code>、<code>盲道分割</code>、<code>GPS</code> 和 <code>TTS</code> 串成一条可运行、可验证、可继续演进的实时感知链路。
+</p>
 
-目前它更像一个可运行、可验证、可继续扩展的工程原型，而不是最终产品。项目重点在于把整套流程先跑通，方便后续替换更强的视觉模型、更可靠的地图服务和更贴近真实场景的交互方式。
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+"/>
+  <img src="https://img.shields.io/badge/平台-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows"/>
+  <img src="https://img.shields.io/badge/视觉链路-YOLO%20%2B%20Depth%20%2B%20PaddleSeg-111111?style=for-the-badge" alt="Vision Stack"/>
+  <img src="https://img.shields.io/badge/状态-原型阶段-E67E22?style=for-the-badge" alt="Prototype"/>
+  <img src="https://img.shields.io/badge/许可证-待补充-6C757D?style=for-the-badge" alt="License TBD"/>
+</p>
 
-## 这个项目是做什么的
+---
 
-EyeGuide 主要提供三类能力：
+## 项目简介
 
-- 自由探索：打开摄像头后，实时检测前方行人、车辆、障碍物等风险，并进行语音播报。
-- 路线导航：输入起点和终点后获取步行路线，在导航过程中结合实时画面和位置持续提醒。
-- 模拟测试：读取本地视频文件，离线复现整套感知与播报流程，方便调试和验证。
+EyeGuide 不是一个单纯的目标检测 Demo，而是一个面向盲人出行辅助场景的桌面系统原型。它关注的不只是“看见了什么”，还包括：
 
-当前版本还支持这些配套能力：
+- **前方有什么**：识别行人、车辆、障碍物、盲道等目标。
+- **离我有多远**：结合单目深度估计补足距离信息。
+- **是否值得提醒**：根据方向、距离、盲道状态筛选真正需要播报的风险。
+- **如何提醒更自然**：通过优先级、冷却时间和长期去重控制语音播报。
 
-- 支持 `USB/NMEA GPS` 串口设备，并可把当前位置写入导航起点。
-- 串口 GPS 暂时没有有效定位时，可尝试调用 Windows 定位服务补充当前位置。
-- 已支持基于实时位置的路线自动跟踪，会在接近当前导航步骤目标点时自动切换到下一条指令并播报。
-- 支持 `OSM(OSRM + Nominatim)` 和 `高德 Web 服务` 两种导航提供方。
-- 终点搜索支持多候选展示，用户可以手动选择最符合预期的地点。
-- 高德不可用时，可按错误类型自动回退到 OSM。
-- 视觉后端优先使用 `YOLO + Depth Anything V2 + 跟踪`，不可用时回退到 `OpenCV` 启发式检测。
-- 语音播报带有去重、优先级、冷却时间和中断控制，减少重复提醒。
+项目当前的重点，是把“感知 -> 决策 -> 播报 -> 导航”这条链路完整跑通，方便后续继续替换更强的模型、更稳的定位方式和更贴近真实场景的交互设计。
 
-## 工作原理
+---
 
-EyeGuide 可以理解为由“感知链路”“导航链路”“播报链路”三部分组成。
+## 功能展示
 
-### 1. 感知链路
+### 主界面总览
 
-- 程序从摄像头或本地视频中持续读取画面。
-- 如果环境中已安装 YOLO 相关依赖，系统优先使用 `Ultralytics YOLO` 做目标检测与目标跟踪。
-- 在深度模型可用时，系统会调用 `Depth Anything V2` 对单目图像做深度估计，用于估计目标大致距离。
-- 如果 YOLO 不可用，则回退到 `OpenCV` 启发式规则，例如行人检测、近距离障碍估计、疑似台阶区域提示等。
-- 感知结果会统一转成目标框、类别、跟踪 ID、距离估计和风险等级，供后续渲染与播报使用。
+展示桌面原型的控制台界面、实时状态区、运行日志和配置面板。
 
-### 2. 导航链路
+![EyeGuide 主界面总览](assets/readme/gui-overview.png)
 
-- 用户输入起点和终点后，系统先进行地点解析。
-- `osm` 模式下，使用 `Nominatim` 做地点搜索，使用 `OSRM` 的 `foot` 步行路由接口生成路线。
-- `amap` 模式下，使用高德地理编码、POI 搜索、输入提示和步行路线规划接口生成路线。
-- 当地点搜索返回多个合理候选时，界面会弹出候选列表，允许用户手动确认终点。
-- 如果高德返回 `INVALID_USER_KEY`、`OVER_DIRECTION_RANGE` 等错误，系统会记录日志，并自动尝试回退到 OSM。
-- 导航开始后，系统会结合路线步骤、实时位置和快捷键控制推进当前导航提示；当 GPS 位置进入当前步骤的到达半径时，会自动切换到下一条导航。
+### 实时检测效果
 
-### 3. 播报链路
+展示程序运行时的检测窗口、目标框、距离提示和当前视觉后端信息。
 
-- 风险事件和导航指令会进入统一的语音队列。
-- 同类内容不会无限重复播报，系统会根据 `dedupe key`、优先级和冷却时间做筛选。
-- 关闭视频或结束会话时，播报可以被中断，而不是一直等当前语句说完。
-- Windows 下优先使用 `SAPI` 语音后端；如果不可用，则回退到 `pyttsx3`。
+![EyeGuide 实时检测效果](assets/readme/live-detection.png)
 
-## 如何使用
+### 演示视频
 
-### 1. 环境准备
+- [盲人出行辅助系统](https://live.csdn.net/v/527244?spm=1001.2014.3001.5501)
+- [盲道识别](https://live.csdn.net/v/527555?spm=1001.2014.3001.5501)
 
-建议环境：
+---
 
-- Windows
-- Python `3.10+`
-- `uv`
-- 可选：USB/NMEA GPS 设备
-- 可选：NVIDIA GPU 与对应 PyTorch 环境
+## 核心亮点
 
-安装基础依赖：
+- **多模型实时协同**：`YOLO + Depth Anything V2 + 盲道分割` 并行执行，而不是串行等待。
+- **面向通行风险而非纯识别**：不是检测到什么都播报，而是按距离、方向和盲道状态筛选真正需要提醒的内容。
+- **盲道优先播报策略**：有盲道时优先播报盲道与盲道占用；没有盲道时再回到普通障碍物提醒。
+- **长期去重播报**：支持普通物体提示的持久去重，避免同一目标反复播报。
+- **GPU / CPU 可切换**：YOLO、深度估计、盲道分割都支持按模块配置运行设备。
+- **完整桌面原型闭环**：包含 GUI、摄像头输入、视频模拟、GPS 接入、路线规划和语音输出。
+- **训练链路已打通**：支持将 YOLO 格式盲道分割数据集转换为 PaddleSeg 格式，并直接启动轻量分割训练。
+
+---
+
+## 核心功能
+
+### 1. 自由探索
+
+打开摄像头后，实时识别前方目标、估计距离、判断方向，并通过语音提示近距离风险。
+
+### 2. 路线导航
+
+输入起点和终点后，结合 `OSM` 或 `高德 Web 服务` 生成步行路线，并在导航过程中结合实时画面持续提醒。
+
+### 3. 盲道感知
+
+项目已接入轻量分割模型，用于识别盲道区域，并判断盲道是否被障碍物占用。
+
+### 4. 视频模拟测试
+
+可以直接加载本地视频离线回放整条处理链路，方便调试、录屏和做模型对比。
+
+### 5. GPS 接入
+
+支持 `USB/NMEA GPS` 串口设备；串口定位不可用时，可尝试调用 Windows 定位服务作为补充。
+
+---
+
+## 技术栈
+
+| 模块 | 技术方案 |
+| --- | --- |
+| 桌面界面 | `Tkinter` |
+| 目标检测与跟踪 | `Ultralytics YOLO` + `ByteTrack` |
+| 单目深度估计 | `Depth Anything V2` |
+| 盲道分割 | `PaddleSeg` + `PP-MobileSeg-Tiny` |
+| 导航服务 | `OSRM` / `Nominatim` / `高德 Web API` |
+| 语音播报 | `SAPI` / `pyttsx3` |
+| 视觉运行时 | `OpenCV` / `NumPy` |
+
+---
+
+## 处理流程
+
+```text
+摄像头 / 本地视频
+    ->
+视频帧读取
+    ->
+SceneAnalyzer
+    |-- YOLO：障碍物检测与跟踪
+    |-- Depth Anything V2：目标距离估计
+    |-- BlindRoadSegmenter：盲道分割
+    ->
+风险筛选与播报策略
+    ->
+SessionController
+    ->
+语音播报 / GUI 叠加显示 / 路线导航
+```
+
+这个架构的关键点在于：**YOLO 在 EyeGuide 里只是障碍物感知前端，而不是最终决策者。**
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- **Windows** 10 / 11
+- **Python** `3.10+`
+- **uv**
+- 可选：`NVIDIA GPU`
+- 可选：`USB/NMEA GPS` 设备
+
+### 1. 克隆仓库
+
+```bash
+git clone <你的仓库地址>
+cd EyeGuide
+```
+
+### 2. 安装基础依赖
 
 ```bash
 uv sync
 ```
 
-如果要启用 YOLO：
+### 3. 安装 YOLO 相关依赖
+
+如果你希望启用 YOLO 检测与跟踪：
 
 ```bash
 uv sync --extra yolo
 ```
 
-如果你希望使用 GPU 版 PyTorch，建议按 PyTorch 官方方式安装与你当前 CUDA 环境匹配的 `torch` / `torchvision`，然后再验证 `ultralytics` 是否能正常加载。
-
-### 2. 启动程序
-
-可以使用以下任意一种方式启动：
+### 4. 启动程序
 
 ```bash
 uv run eyeguide
 ```
 
-或
+或者：
 
 ```bash
 python app.py
 ```
 
-### 3. 使用导航模式
+---
 
-1. 启动程序。
-2. 选择导航提供方：`osm` 或 `amap`。
-3. 如果选择高德，填写 `高德 Web 服务 Key`。
-4. 输入起点和终点。
-5. 如果已经连接 GPS，可以点击“用当前 GPS 位置填入起点”。
-6. 点击“启动路线导航”。
-7. 如果系统返回多个终点候选，手动选择最合适的一项。
-8. 路线生成成功后，程序会打开视频窗口并开始播报导航提示。
+## 常用命令
 
-说明：
+### 启动桌面程序
 
-- `osm` 适合通用测试，依赖 `Nominatim + OSRM`。
-- `amap` 更适合中国大陆地址场景，但需要有效的高德 Key。
-- 高德搜索或路线规划失败时，程序会在日志中打印错误与回退信息。
-- 当前界面会输出候选搜索明细日志，方便排查“为什么只返回一个地址”这类问题。
+```bash
+uv run eyeguide
+```
 
-### 4. 使用自由探索模式
+### 启动图片搜索工具
+
+```bash
+uv run eyeguide-image-search
+```
+
+### 将 YOLO 分割标注转换为 PaddleSeg 数据集
+
+```bash
+uv run eyeguide-prepare-paddleseg
+```
+
+### 启动盲道分割训练
+
+```bash
+uv run eyeguide-train-blind-road-seg
+```
+
+---
+
+## 使用说明
+
+### 自由探索模式
+
+适合快速验证视觉感知和语音播报链路。
 
 1. 启动程序。
 2. 点击“启动自由探索”。
-3. 程序会打开默认摄像头，并持续识别前方风险目标。
-4. 检测到近距离危险或重点障碍时，会进行语音提醒。
+3. 程序会打开默认摄像头并开始实时分析。
+4. 当检测到近距离风险时，会触发语音播报。
 
-### 5. 使用模拟测试模式
+### 路线导航模式
 
-1. 在界面中选择本地视频文件。
+适合验证路线规划与实时感知协同。
+
+1. 启动程序。
+2. 选择导航提供方：`osm` 或 `amap`。
+3. 如果使用高德，填写 `Amap Web API Key`。
+4. 输入起点和终点。
+5. 点击“启动路线导航”。
+6. 如果出现多个候选终点，手动选择最符合预期的一项。
+
+### 视频模拟模式
+
+适合离线评估、录制演示视频和做模型回归测试。
+
+1. 选择本地视频文件。
 2. 点击“启动模拟测试”。
-3. 程序会按实时处理方式分析视频并播报结果。
+3. 程序会按实时流程分析视频，并在窗口内叠加检测与状态信息。
 
-### 6. 使用 GPS
+---
 
-1. 将 GPS 设备连接到电脑。
-2. 在“GPS 定位设置”中刷新串口列表。
-3. 选择对应 `COM` 口并连接。
-4. 等待状态栏显示有效定位。
-5. 点击“用当前 GPS 位置填入起点”，即可把当前位置写入导航起点。
+## 模型运行说明
 
-如果串口 GPS 暂时没有定位，程序会尝试调用 Windows 定位服务作为补充。连接并获得有效定位后，导航模式会根据实时位置自动推进当前路线步骤。
+### YOLO
 
-### 7. 快捷键
+- 默认权重位置：`models/YOLO/yolo26n.pt`
+- 主流程采用 `track()` 模式，而不是单帧 `predict()`
+- 默认结合 `ByteTrack` 保持跨帧目标 ID 稳定
 
-视频窗口中可使用以下快捷键：
+### Depth Anything V2
 
-- `Q`：退出当前处理会话
-- `N`：切换到下一条导航指令
-- `R`：重复当前导航指令
+- 用来补足检测框的距离估计
+- 首次运行可能需要下载或加载本地缓存模型
 
-## 技术栈
+### 盲道分割
 
-- 界面：`Tkinter`
-- 图像处理：`OpenCV`
-- 检测与跟踪：`Ultralytics YOLO`
-- 深度估计：`Depth Anything V2`
-- 导航与地理编码：`OSRM`、`Nominatim`、`高德 Web 服务`
-- 语音播报：`SAPI` / `pyttsx3`
-- 定位接入：`pyserial`、Windows Location API
+- 当前轻量分割路线基于 `PP-MobileSeg-Tiny`
+- 运行权重位于：`models/blind_road_pp_mobileseg_tiny/`
+- Paddle 环境异常时，盲道分割可能会自动回退或不可用
+
+---
+
+## 训练工具
+
+项目已经内置了盲道分割训练辅助脚本，适合继续做自己的数据闭环。
+
+### 1. 数据集转换
+
+如果你已经有 `YOLO` 格式的盲道分割标注数据：
+
+```bash
+uv run eyeguide-prepare-paddleseg
+```
+
+默认会把数据转换到：
+
+```text
+datasets/blind_road_paddleseg/
+```
+
+### 2. 启动训练
+
+```bash
+uv run eyeguide-train-blind-road-seg
+```
+
+默认配置文件位于：
+
+```text
+training/paddleseg/pp_mobileseg_tiny_blind_road_512x512.yml
+```
+
+默认输出目录位于：
+
+```text
+training/paddleseg/output/blind_road_pp_mobileseg_tiny/
+```
+
+---
 
 ## 项目结构
 
 ```text
 EyeGuide/
-├── app.py
-├── pyproject.toml
-├── README.md
-└── eyeguide/
-    ├── app/        # 会话编排、运行控制
-    ├── core/       # 全局配置、事件定义
-    ├── domain/     # 数据模型
-    ├── services/   # 导航、视觉、语音、定位等能力模块
-    ├── ui/         # 桌面界面
-    └── main.py
+├─ app.py
+├─ pyproject.toml
+├─ assets/
+├─ eyeguide/
+│  ├─ app/         # 会话编排、运行控制、导航流程
+│  ├─ core/        # 配置、路径、事件定义
+│  ├─ domain/      # 数据模型
+│  ├─ services/    # 视觉、导航、语音、定位等核心能力
+│  ├─ tools/       # 数据集准备、训练、图片搜索等脚本
+│  ├─ ui/          # Tkinter 桌面界面
+│  └─ main.py
+├─ models/         # 本地模型权重，默认不提交
+├─ datasets/       # 本地数据集，默认不提交
+└─ training/       # 本地训练产物，默认不提交
 ```
 
-## 注意事项
+---
 
-- 这不是医疗或安全认证产品，不能直接作为正式的出行安全设备使用。
-- 单目深度估计本质上仍是模型推断结果，距离值可用于风险参考，但不应视为严格测距。
-- 公共地图服务依赖网络和第三方接口，可用性受外部服务状态影响。
-- 首次运行深度模型时，可能需要从 Hugging Face 下载模型权重；下载完成后通常会缓存到本地。
-- 如果控制台中文日志出现乱码，可在 PowerShell 中先执行 `chcp 65001` 再启动程序。
+## 路线图
 
-## Windows 打包与安装
+### 已完成
 
-如果你希望把项目交给别人直接安装使用，当前仓库已经补好了 `PyInstaller + Inno Setup` 打包方案。
+- [x] 桌面 GUI 原型
+- [x] YOLO 检测与跟踪接入
+- [x] Depth Anything V2 距离估计
+- [x] 盲道轻量分割接入
+- [x] 盲道优先播报策略
+- [x] 普通物体长期去重播报
+- [x] 视频模拟测试模式
+- [x] GPS 串口接入与导航联动
 
-### 1. 安装打包依赖
+### 计划中
 
-先安装项目依赖，并额外带上 YOLO 与打包工具：
+- [ ] 增加更稳定的 GPU 推理与依赖自检
+- [ ] 补充更多真实路面演示素材
+- [ ] 优化盲道占用判断的几何精度
+- [ ] 引入更细粒度的障碍物类别
+- [ ] 增加运行时配置面板
+- [ ] 完善训练评估与模型导出流程
 
-```bash
-uv sync --extra yolo --extra package
-```
+---
 
-### 2. 可选：预下载深度模型到项目目录
+## 参与贡献
 
-如果你希望安装包在目标机器上开箱即用，不依赖首次联网下载 `Depth Anything V2`，可以先把模型缓存到仓库里的 `models/depth-anything-v2/`：
+欢迎通过以下方式参与：
 
-```bash
-uv run python .\packaging\cache_depth_model.py
-```
+- 提交 `Issue` 报告 Bug、运行环境问题或误报案例
+- 提交 `PR` 改进模型接入、工程结构、文档和 UI
+- 提供真实路面素材、盲道场景视频和标注数据
 
-说明：
-- 如果构建时存在 `models/depth-anything-v2/`，打包脚本会把它一起打进安装包。
-- 如果构建时不存在这个目录，程序在新机器上首次运行时会尝试从 Hugging Face 下载模型并缓存。
+如果你准备贡献代码，建议先：
 
-### 3. 生成可分发的 exe 目录
+1. Fork 仓库并创建新分支。
+2. 使用 `uv sync` 或 `uv sync --extra yolo` 安装依赖。
+3. 先用本地视频做回归测试，再提交修改。
 
-执行：
+---
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\packaging\build_windows.ps1
-```
+## 已知限制
 
-生成结果：
-- `dist\EyeGuide\EyeGuide.exe`
-- 以及它运行所需的全部依赖文件
+- 这是一个**研究原型**，不是经过医疗或安全认证的正式辅助设备。
+- 单目深度估计给出的距离更适合作为风险参考，而不是严格测距结果。
+- 第三方地图和定位服务的可用性会受到网络环境和接口状态影响。
+- GPU 相关依赖在 Windows 上容易受到 CUDA、cuDNN、Torch、Paddle 版本匹配问题影响。
 
-当前默认使用 `onedir` 方式打包，而不是单文件 `onefile`。这样对 `torch / ultralytics / opencv` 这类大体积依赖更稳定，也更适合桌面 GUI 程序。
+---
 
-### 4. 生成安装程序
+## 常见问题
 
-如果你希望给别人一个“下一步、下一步”式的安装包，还需要先安装 `Inno Setup 6`，然后执行：
+### 1. 没装 YOLO 能跑吗？
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\packaging\build_windows.ps1 -BuildInstaller
-```
+可以。YOLO 不可用时，项目会回退到 OpenCV 启发式感知链路，但效果会明显弱于完整视觉后端。
 
-生成结果：
-- `dist\EyeGuide-Setup.exe`
+### 2. 一定要 GPU 吗？
 
-安装后，用户可以通过开始菜单或桌面快捷方式启动程序。
+不是。CPU 可以跑通流程，但实时性会更弱。YOLO、Depth 和盲道分割都支持按模块配置 CPU / GPU。
 
-### 5. 打包相关文件位置
+### 3. 适合直接部署给真实用户吗？
 
-- `packaging/eyeguide.spec`
-  负责定义 PyInstaller 如何收集依赖、模型权重和资源文件
-- `packaging/build_windows.ps1`
-  Windows 一键打包脚本
-- `packaging/EyeGuide.iss`
-  Inno Setup 安装包脚本
-- `packaging/cache_depth_model.py`
-  把 Depth Anything V2 下载到项目本地，便于离线分发
+暂时不建议。它更适合作为研究验证平台、课程项目、毕业设计原型或后续移动端系统的桌面实验场。
 
-### 6. 打包前建议
+---
 
-- 尽量在和目标用户相同的大版本 Windows 环境下打包
-- 如果你希望分发 GPU 版，打包环境本身就应该已经安装好对应 CUDA 版本的 `torch` / `torchvision`
-- `yolo26n.pt` 与 `yolo11n.pt` 会自动跟随打包
-- 高德 Key、GPS 串口号、耳机输出设备名称这些运行时配置，仍然需要在目标机器实际使用时按环境调整
+## 开源协议
 
-## 后续可扩展方向
+当前仓库**尚未明确附带 LICENSE 文件**。如果你准备公开分发或接受外部贡献，建议尽快补充 `MIT`、`Apache-2.0` 或其他明确许可证。
 
-- 引入更强的多模态感知模型，提高对台阶、路沿、坑洼、红绿灯和盲道的识别能力。
-- 优化自动路线跟踪的鲁棒性，并补充偏航重规划能力。
-- 引入更稳定的移动端定位、耳机播报和语音命令交互。
-- 持续优化候选地址排序、风险筛选和语音提醒策略，减少误报和重复播报。
+---
+
+## 致谢
+
+- `Ultralytics YOLO`
+- `Depth Anything V2`
+- `PaddleSeg`
+- `OSRM`
+- `Nominatim`
+- `Amap Web API`

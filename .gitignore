@@ -13,3 +13,4 @@ datasets/
 .tmp/
 training/paddleseg/output/
 training/
+docs/
