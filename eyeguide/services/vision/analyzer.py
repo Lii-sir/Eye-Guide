@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from time import perf_counter
+
 import numpy as np
 
+from eyeguide.core.config import VisionConfig
 from eyeguide.domain.models import DetectionBox, DetectionEvent, FrameAnalysis
+from eyeguide.services.vision.blind_road_backend import BlindRoadEstimate, BlindRoadSegmenter
 from eyeguide.services.vision.depth_backend import DepthAnythingV2MetricEstimator, DepthEstimate
 from eyeguide.services.vision.heuristics import HeuristicVisionDetector
 from eyeguide.services.vision.rendering import UnicodeFrameRenderer
 from eyeguide.services.vision.tracking import ObjectTracker
 from eyeguide.services.vision.yolo_backend import BoxPrediction, YoloDetector
 
+
+_VISION_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="eyeguide-vision")
 
 HAZARD_LABELS = {
     "person": "行人",
@@ -30,39 +38,77 @@ MIN_DETECTION_CENTER_RATIO = 0.08
 MAX_DETECTION_CENTER_RATIO = 0.92
 
 
+@dataclass(slots=True)
+class InferenceStats:
+    yolo_ms: float = 0.0
+    depth_ms: float = 0.0
+    blind_road_ms: float = 0.0
+    total_ms: float = 0.0
+    yolo_cached: bool = False
+    depth_cached: bool = False
+    blind_road_cached: bool = False
+
+
 class SceneAnalyzer:
-    def __init__(self) -> None:
+    def __init__(self, config: VisionConfig | None = None) -> None:
+        self._config = config or VisionConfig()
         self._frame_index = 0
-        self._yolo = YoloDetector()
-        self._depth = DepthAnythingV2MetricEstimator()
+        self._yolo = YoloDetector(preferred_device=self._config.yolo_device_preference)
+        self._depth = DepthAnythingV2MetricEstimator(
+            preferred_device=self._config.depth_device_preference
+        )
+        self._blind_road = BlindRoadSegmenter(self._config)
         self._heuristics = HeuristicVisionDetector()
         self._tracker = ObjectTracker()
         self._renderer = UnicodeFrameRenderer()
+        self._last_predictions: list[BoxPrediction] = []
+        self._last_prediction_shape: tuple[int, int] | None = None
+        self._last_depth_estimate: DepthEstimate | None = None
+        self._last_depth_shape: tuple[int, int] | None = None
 
     @property
     def backend_name(self) -> str:
-        if self._yolo.is_available and self._depth.is_available:
-            return f"YOLO + Depth Anything V2 ({self._yolo.device})"
+        parts: list[str] = []
+        devices: list[str] = []
         if self._yolo.is_available:
-            return f"YOLO only ({self._yolo.device})"
-        return "OpenCV heuristic + tracker"
+            parts.append("YOLO")
+            devices.append(self._yolo.device)
+        else:
+            parts.append("OpenCV heuristic")
+        if self._depth.is_available:
+            parts.append("Depth Anything V2")
+        if self._blind_road.is_available:
+            parts.append("BlindRoadSeg")
+            devices.append(self._blind_road.device)
+        device_text = "+".join(dict.fromkeys(devices)) if devices else "cpu"
+        return f"{' + '.join(parts)} ({device_text})"
 
     @property
     def backend_detail(self) -> str:
-        if self._yolo.is_available and self._depth.is_available:
-            return f"YOLO device={self._yolo.device}; depth={self._depth.model_name}"
+        details: list[str] = []
         if self._yolo.is_available:
-            return self._depth.load_error or "Depth backend unavailable"
-        return self._yolo.load_error or "YOLO unavailable"
+            details.append(f"YOLO device={self._yolo.device}")
+        elif self._yolo.load_error:
+            details.append(f"YOLO unavailable: {self._yolo.load_error}")
+        if self._depth.is_available:
+            details.append(f"depth={self._depth.model_name}")
+        elif self._depth.load_error:
+            details.append(f"depth unavailable: {self._depth.load_error}")
+        if self._blind_road.is_available:
+            details.append(f"blind-road device={self._blind_road.device}")
+        elif self._blind_road.load_error:
+            details.append(f"blind-road unavailable: {self._blind_road.load_error}")
+        return "; ".join(details) if details else "Vision backends unavailable"
 
     def analyze(self, frame: np.ndarray) -> FrameAnalysis:
+        total_start = perf_counter()
         self._frame_index += 1
         analysis = FrameAnalysis()
-        height, width = frame.shape[:2]
+        _, width = frame.shape[:2]
 
-        predictions = self._yolo.track(frame)
+        predictions, depth_estimate, blind_road_estimate, stats = self._run_inference(frame)
+
         if predictions:
-            depth_estimate = self._depth.estimate(frame)
             analysis.boxes.extend(self._predictions_to_boxes(depth_estimate, predictions, width))
             self._collect_yolo_events(frame, analysis.boxes, analysis)
         else:
@@ -70,7 +116,15 @@ class SceneAnalyzer:
             self._heuristics.collect_ground_obstacle_events(frame, analysis)
             analysis.boxes = self._tracker.update(analysis.boxes)
 
+        self._blind_road.enrich_analysis(
+            frame,
+            analysis.boxes,
+            analysis,
+            self._frame_index,
+            estimate=blind_road_estimate,
+        )
         self._heuristics.collect_step_events(frame, analysis)
+        self._apply_speech_policy(analysis)
         self._draw_detection_boxes(frame, analysis.boxes)
 
         if analysis.events:
@@ -79,13 +133,149 @@ class SceneAnalyzer:
         else:
             analysis.hazard_summary = "环境相对安全"
 
+        stats.total_ms = (perf_counter() - total_start) * 1000.0
         analysis.overlays = [
             f"检测后端: {self.backend_name}",
             f"追踪目标: {len(analysis.boxes)}",
             f"状态: {analysis.hazard_summary}",
+            *self._build_performance_overlays(stats),
             *analysis.overlays,
         ]
         return analysis
+
+    def _run_inference(
+        self,
+        frame: np.ndarray,
+    ) -> tuple[list[BoxPrediction], DepthEstimate | None, BlindRoadEstimate | None, InferenceStats]:
+        if self._config.parallel_inference_enabled:
+            return self._run_parallel_inference(frame)
+        return self._run_serial_inference(frame)
+
+    def _run_parallel_inference(
+        self,
+        frame: np.ndarray,
+    ) -> tuple[list[BoxPrediction], DepthEstimate | None, BlindRoadEstimate | None, InferenceStats]:
+        frame_shape = frame.shape[:2]
+        stats = InferenceStats()
+        yolo_refresh_due = self._should_refresh(
+            frame_shape,
+            self._last_prediction_shape,
+            bool(self._last_predictions),
+            self._config.yolo_infer_interval_frames,
+        )
+        depth_refresh_due = self._should_refresh(
+            frame_shape,
+            self._last_depth_shape,
+            self._last_depth_estimate is not None,
+            self._config.depth_infer_interval_frames,
+        )
+
+        yolo_future: Future[tuple[list[BoxPrediction], float]] | None = None
+        if self._yolo.is_available and yolo_refresh_due:
+            yolo_future = _VISION_EXECUTOR.submit(self._timed_call, self._yolo.track, frame)
+        else:
+            stats.yolo_cached = bool(self._last_predictions)
+
+        depth_future: Future[tuple[DepthEstimate | None, float]] | None = None
+        if self._depth.is_available and depth_refresh_due:
+            depth_future = _VISION_EXECUTOR.submit(self._timed_call, self._depth.estimate, frame)
+        else:
+            stats.depth_cached = self._last_depth_estimate is not None
+
+        blind_road_future: Future[tuple[BlindRoadEstimate | None, float]] = _VISION_EXECUTOR.submit(
+            self._timed_call,
+            self._blind_road.estimate,
+            frame,
+            self._frame_index,
+        )
+
+        if yolo_future is not None:
+            predictions, stats.yolo_ms = yolo_future.result()
+            self._last_predictions = list(predictions)
+            self._last_prediction_shape = frame_shape
+        else:
+            predictions = list(self._last_predictions)
+
+        if depth_future is not None:
+            depth_estimate, stats.depth_ms = depth_future.result()
+            self._last_depth_estimate = depth_estimate
+            self._last_depth_shape = frame_shape
+        else:
+            depth_estimate = self._last_depth_estimate
+
+        blind_road_estimate, stats.blind_road_ms = blind_road_future.result()
+        stats.blind_road_cached = (
+            blind_road_estimate is not None
+            and self._config.blind_road_infer_interval_frames > 1
+            and self._frame_index % max(1, self._config.blind_road_infer_interval_frames) != 1
+        )
+
+        if not predictions:
+            depth_estimate = None
+        return predictions, depth_estimate, blind_road_estimate, stats
+
+    def _run_serial_inference(
+        self,
+        frame: np.ndarray,
+    ) -> tuple[list[BoxPrediction], DepthEstimate | None, BlindRoadEstimate | None, InferenceStats]:
+        frame_shape = frame.shape[:2]
+        stats = InferenceStats()
+
+        yolo_refresh_due = self._should_refresh(
+            frame_shape,
+            self._last_prediction_shape,
+            bool(self._last_predictions),
+            self._config.yolo_infer_interval_frames,
+        )
+        if self._yolo.is_available and yolo_refresh_due:
+            predictions, stats.yolo_ms = self._timed_call(self._yolo.track, frame)
+            self._last_predictions = list(predictions)
+            self._last_prediction_shape = frame_shape
+        else:
+            predictions = list(self._last_predictions)
+            stats.yolo_cached = bool(predictions)
+
+        depth_refresh_due = self._should_refresh(
+            frame_shape,
+            self._last_depth_shape,
+            self._last_depth_estimate is not None,
+            self._config.depth_infer_interval_frames,
+        )
+        if self._depth.is_available and depth_refresh_due:
+            depth_estimate, stats.depth_ms = self._timed_call(self._depth.estimate, frame)
+            self._last_depth_estimate = depth_estimate
+            self._last_depth_shape = frame_shape
+        else:
+            depth_estimate = self._last_depth_estimate
+            stats.depth_cached = depth_estimate is not None
+
+        blind_road_estimate, stats.blind_road_ms = self._timed_call(
+            self._blind_road.estimate,
+            frame,
+            self._frame_index,
+        )
+        stats.blind_road_cached = (
+            blind_road_estimate is not None
+            and self._config.blind_road_infer_interval_frames > 1
+            and self._frame_index % max(1, self._config.blind_road_infer_interval_frames) != 1
+        )
+
+        if not predictions:
+            depth_estimate = None
+        return predictions, depth_estimate, blind_road_estimate, stats
+
+    def _should_refresh(
+        self,
+        frame_shape: tuple[int, int],
+        last_shape: tuple[int, int] | None,
+        has_cached_value: bool,
+        interval_frames: int,
+    ) -> bool:
+        if not has_cached_value or last_shape != frame_shape:
+            return True
+        if interval_frames <= 1:
+            return True
+        return self._frame_index % interval_frames == 1
 
     def _predictions_to_boxes(
         self,
@@ -137,7 +327,7 @@ class SceneAnalyzer:
             if distance_meters is None or distance_meters > ANNOUNCE_DISTANCE_METERS:
                 continue
 
-            distance_text, priority = self._classify_distance(distance_meters, bottom_ratio, area_ratio)
+            _, priority = self._classify_distance(distance_meters, bottom_ratio, area_ratio)
             label = HAZARD_LABELS[box.label]
             direction_text = box.relative_direction or self._relative_direction(box.box, width)
             distance_band = "near"
@@ -172,6 +362,43 @@ class SceneAnalyzer:
                 label = f"{label} {box.confidence:.2f}"
             self._renderer.draw_box_label(frame, box.box, label, color)
 
+    def _apply_speech_policy(self, analysis: FrameAnalysis) -> None:
+        if not analysis.blind_road_detected:
+            return
+        analysis.events = [
+            event for event in analysis.events if event.category.startswith("blind_road:")
+        ]
+
+    def _build_performance_overlays(self, stats: InferenceStats) -> list[str]:
+        if not self._config.show_performance_overlay:
+            return []
+
+        items = [
+            self._format_performance_item("YOLO", stats.yolo_ms, stats.yolo_cached, self._yolo.is_available),
+            self._format_performance_item("Depth", stats.depth_ms, stats.depth_cached, self._depth.is_available),
+            self._format_performance_item(
+                "盲道",
+                stats.blind_road_ms,
+                stats.blind_road_cached,
+                self._blind_road.is_available,
+            ),
+        ]
+        items.append(f"总计 {stats.total_ms:.0f}ms")
+        return [f"耗时: {' | '.join(items)}"]
+
+    def _format_performance_item(
+        self,
+        label: str,
+        duration_ms: float,
+        cached: bool,
+        available: bool,
+    ) -> str:
+        if not available:
+            return f"{label} -"
+        if cached:
+            return f"{label} 缓存"
+        return f"{label} {duration_ms:.0f}ms"
+
     def _classify_distance(
         self,
         distance_meters: float,
@@ -196,3 +423,7 @@ class SceneAnalyzer:
         if center_ratio <= 0.8:
             return "右前方"
         return "右侧"
+
+    def _timed_call(self, fn, *args):
+        start = perf_counter()
+        return fn(*args), (perf_counter() - start) * 1000.0

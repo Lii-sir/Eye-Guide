@@ -61,6 +61,9 @@ class FrameAnalysis:
     boxes: List[DetectionBox] = field(default_factory=list)
     overlays: List[str] = field(default_factory=list)
     hazard_summary: Optional[str] = None
+    blind_road_detected: bool = False
+    blind_road_blocked: bool = False
+    blind_road_direction: Optional[str] = None
 
 
 @dataclass

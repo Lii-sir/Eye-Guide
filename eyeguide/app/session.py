@@ -23,7 +23,7 @@ class SessionController:
         self._config = config or AppConfig()
         self._event_queue = event_queue
         self._speech = SpeechEngine(self._config.speech)
-        self._vision = SceneAnalyzer()
+        self._vision = SceneAnalyzer(self._config.vision)
         self._renderer = UnicodeFrameRenderer()
         self._gps = GpsService(event_queue, self._config.gps)
         self._route_guidance = RouteGuidance(self._config.navigation, self._speech, self._emit)
@@ -49,7 +49,7 @@ class SessionController:
 
         self._speech.cancel_all()
         self._stop_event.clear()
-        self._vision = SceneAnalyzer()
+        self._vision = SceneAnalyzer(self._config.vision)
         self._route_guidance.set_route(route_plan)
         self._thread = Thread(target=self._run_loop, args=(mode, source), daemon=True)
         self._thread.start()
@@ -125,6 +125,7 @@ class SessionController:
 
                 if analysis.events:
                     event = analysis.events[0]
+                    is_blind_road_event = event.channel == "blind_road"
                     # if event.channel == "vision":
                     #     self._emit("log", f"TTS视觉入队：{event.message}")
                     enqueued = self._speech.speak(
@@ -133,8 +134,10 @@ class SessionController:
                         dedupe_key=event.dedupe_key or event.category,
                         cooldown_seconds=event.cooldown_seconds,
                         channel=event.channel,
-                        replace_pending=event.channel == "vision",
-                        interrupt=False if event.channel == "vision" else event.priority <= 1,
+                        replace_pending=event.channel in {"vision", "blind_road"},
+                        interrupt=True
+                        if is_blind_road_event
+                        else (False if event.channel == "vision" else event.priority <= 1),
                     )
                     # if not enqueued and event.channel == "vision":
                     #     self._emit("log", f"TTS视觉跳过：{event.message}")

@@ -30,6 +30,9 @@ package = [
 
 [project.scripts]
 eyeguide = "eyeguide.main:main"
+eyeguide-image-search = "eyeguide.tools.image_search:main"
+eyeguide-prepare-paddleseg = "eyeguide.tools.prepare_paddleseg_dataset:main"
+eyeguide-train-blind-road-seg = "eyeguide.tools.train_blind_road_seg:main"
 
 [build-system]
 requires = ["hatchling"]

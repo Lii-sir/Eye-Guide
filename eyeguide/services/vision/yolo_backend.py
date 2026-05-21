@@ -18,9 +18,11 @@ class BoxPrediction:
 
 
 class YoloDetector:
-    def __init__(self, model_name: str = "yolo26n.pt") -> None:
+    def __init__(self, model_name: str = "yolo26n.pt", preferred_device: str = "auto") -> None:
         self._load_error: str | None = None
+        self._preferred_device = preferred_device.strip().lower()
         self._device = self._detect_device()
+        self._inference_device = "0" if self._device == "gpu" else "cpu"
         self._model = self._load_model(self._resolve_model_path(model_name))
 
     @property
@@ -36,13 +38,17 @@ class YoloDetector:
         return self._device
 
     def _detect_device(self) -> str:
+        if self._preferred_device == "cpu":
+            return "cpu"
         try:
             import torch
 
-            if torch.cuda.is_available():
-                return "0"
+            if self._preferred_device in {"auto", "gpu"} and torch.cuda.is_available():
+                return "gpu"
         except Exception:
             pass
+        if self._preferred_device == "gpu":
+            self._load_error = "YOLO preferred GPU but CUDA is unavailable; falling back to CPU"
         return "cpu"
 
     def _import_yolo(self):
@@ -90,9 +96,9 @@ class YoloDetector:
                     conf=0.45,
                     iou=0.5,
                     verbose=False,
-                    imgsz=640,
+                    imgsz=256,
                     classes=None,
-                    device=self._device,
+                    device=self._inference_device,
                     tracker="bytetrack.yaml",
                 )[0]
             else:
@@ -100,9 +106,9 @@ class YoloDetector:
                     source=frame,
                     conf=0.45,
                     verbose=False,
-                    imgsz=640,
+                    imgsz=256,
                     classes=None,
-                    device=self._device,
+                    device=self._inference_device,
                 )[0]
         except Exception:
             return []

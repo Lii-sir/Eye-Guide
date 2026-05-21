@@ -18,8 +18,10 @@ class DepthAnythingV2MetricEstimator:
     def __init__(
         self,
         model_name: str = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",
+        preferred_device: str = "auto",
     ) -> None:
         self._model_name = model_name
+        self._preferred_device = preferred_device.strip().lower()
         self._load_error: str | None = None
         self._device = self._detect_device()
         self._processor = None
@@ -43,13 +45,17 @@ class DepthAnythingV2MetricEstimator:
         return self._model_name
 
     def _detect_device(self) -> str:
+        if self._preferred_device == "cpu":
+            return "cpu"
         try:
             import torch
 
-            if torch.cuda.is_available():
+            if self._preferred_device in {"auto", "gpu"} and torch.cuda.is_available():
                 return "cuda"
         except Exception:
             pass
+        if self._preferred_device == "gpu":
+            self._load_error = "Depth preferred GPU but CUDA is unavailable; falling back to CPU"
         return "cpu"
 
     def _load(self) -> None:

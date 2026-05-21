@@ -8,3 +8,8 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+spider/
+datasets/
+.tmp/
+training/paddleseg/output/
+training/
