@@ -140,39 +140,70 @@ class BlindRoadSegmenter:
             self._load_error = "Blind road config, weights, or PaddleSeg root not found"
             return
 
+        if str(paddleseg_root) not in sys.path:
+            sys.path.insert(0, str(paddleseg_root))
+
         try:
-            if str(paddleseg_root) not in sys.path:
-                sys.path.insert(0, str(paddleseg_root))
-
             paddle = importlib.import_module("paddle")
-            cvlibs = importlib.import_module("paddleseg.cvlibs")
-            seg_utils = importlib.import_module("paddleseg.utils.utils")
-
-            self._device = self._resolve_device(paddle)
-            paddle.set_device(self._device)
-
-            cfg = cvlibs.Config(str(config_path))
-            cfg.dic["model"]["backbone"]["pretrained"] = None
-            builder = cvlibs.SegBuilder(cfg)
-            model = builder.model
-            seg_utils.load_entire_model(model, str(model_path))
-            model.eval()
-
-            self._paddle = paddle
-            self._model = model
+            preferred_device = self._resolve_device(paddle)
+            self._load_model(paddle, preferred_device, config_path, model_path)
         except Exception as exc:  # pragma: no cover
-            self._load_error = str(exc)
+            should_try_cpu_fallback = self._config.blind_road_device_preference.strip().lower() != "cpu"
+            if should_try_cpu_fallback and "paddle" in locals():
+                fallback_error = str(exc)
+                try:
+                    self._load_model(paddle, "cpu", config_path, model_path)
+                    self._load_error = (
+                        "Blind road GPU initialization failed; fell back to CPU. "
+                        f"Original error: {fallback_error}"
+                    )
+                    return
+                except Exception as fallback_exc:
+                    self._load_error = f"{fallback_error}; CPU fallback failed: {fallback_exc}"
+            else:
+                self._load_error = str(exc)
             self._paddle = None
             self._model = None
+
+    def _load_model(
+        self,
+        paddle,
+        device: str,
+        config_path: Path,
+        model_path: Path,
+    ) -> None:
+        cvlibs = importlib.import_module("paddleseg.cvlibs")
+        seg_utils = importlib.import_module("paddleseg.utils.utils")
+
+        self._device = device
+        paddle.set_device(device)
+
+        cfg = cvlibs.Config(str(config_path))
+        cfg.dic["model"]["backbone"]["pretrained"] = None
+        builder = cvlibs.SegBuilder(cfg)
+        model = builder.model
+        seg_utils.load_entire_model(model, str(model_path))
+        model.eval()
+
+        self._paddle = paddle
+        self._model = model
 
     def _resolve_device(self, paddle_module) -> str:
         preference = self._config.blind_road_device_preference.strip().lower()
         if preference == "cpu":
             return "cpu"
-        gpu_available = (
-            paddle_module.is_compiled_with_cuda()
-            and paddle_module.device.cuda.device_count() > 0
-        )
+        try:
+            gpu_available = (
+                paddle_module.is_compiled_with_cuda()
+                and paddle_module.device.cuda.device_count() > 0
+            )
+        except Exception as exc:
+            if preference == "gpu":
+                self._load_error = (
+                    f"Blind road preferred GPU but Paddle CUDA runtime is unavailable; "
+                    f"falling back to CPU. Original error: {exc}"
+                )
+            return "cpu"
         if preference in {"auto", "gpu"} and gpu_available:
             return "gpu"
         if preference == "gpu":

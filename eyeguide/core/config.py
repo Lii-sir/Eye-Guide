@@ -11,11 +11,11 @@ class VisionConfig:
     parallel_inference_enabled: bool = True
     show_performance_overlay: bool = True
     yolo_device_preference: str = "gpu"
-    yolo_infer_interval_frames: int = 2
+    yolo_infer_interval_frames: int = 4
     depth_device_preference: str = "gpu"
     depth_infer_interval_frames: int = 4
     blind_road_enabled: bool = True
-    blind_road_device_preference: str = "gpu"
+    blind_road_device_preference: str = "cpu"
     blind_road_model_config_path: str = "training/paddleseg/pp_mobileseg_tiny_blind_road_512x512.yml"
     blind_road_weights_dir: str = "training/paddleseg/output/blind_road_pp_mobileseg_tiny/best_model"
     blind_road_paddleseg_root: str = ".tmp/PaddleSeg"
