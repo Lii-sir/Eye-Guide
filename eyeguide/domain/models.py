@@ -20,6 +20,7 @@ class DetectionEvent:
     channel: str = "vision"
     priority: int = 5
     cooldown_seconds: float = 4.0
+    persistent_dedupe: bool = False
     timestamp: float = field(default_factory=time.time)
 
 

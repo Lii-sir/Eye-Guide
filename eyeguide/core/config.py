@@ -30,6 +30,7 @@ class SpeechConfig:
     rate: int = 185
     preferred_voice_name: str = "Microsoft Huihui Desktop - Chinese (Simplified)"
     preferred_output_name: str = "EDIFIER Comfo SE"
+    persistent_dedupe_ttl_seconds: float = 20.0
 
 
 @dataclass(frozen=True)

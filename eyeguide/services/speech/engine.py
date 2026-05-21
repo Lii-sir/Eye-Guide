@@ -30,6 +30,7 @@ class SpeechMessage:
     cooldown_seconds: float
     channel: str = "general"
     interrupt: bool = False
+    persistent_dedupe: bool = False
     generation: int = 0
 
 
@@ -244,6 +245,7 @@ class SpeechEngine:
         self._generation = 0
         self._last_spoken: Dict[str, float] = {}
         self._last_enqueued: Dict[str, float] = {}
+        self._persistent_seen: Dict[str, float] = {}
         self._current_message: SpeechMessage | None = None
         self._backend = None
         self._thread = Thread(target=self._run, daemon=True)
@@ -279,10 +281,15 @@ class SpeechEngine:
         channel: str = "general",
         replace_pending: bool = False,
         interrupt: bool = False,
+        persistent_dedupe: bool = False,
     ) -> bool:
         key = dedupe_key or text
         now = time.time()
         with self._lock:
+            self._prune_persistent_dedupe_locked(now)
+            if persistent_dedupe and self._is_persistent_dedupe_blocked_locked(key, now):
+                return False
+
             recent_at = max(self._last_spoken.get(key, 0.0), self._last_enqueued.get(key, 0.0))
             if now - recent_at < cooldown_seconds:
                 return False
@@ -311,7 +318,16 @@ class SpeechEngine:
                 (
                     priority,
                     next(self._counter),
-                    SpeechMessage(text, priority, key, cooldown_seconds, channel, interrupt, generation),
+                    SpeechMessage(
+                        text,
+                        priority,
+                        key,
+                        cooldown_seconds,
+                        channel,
+                        interrupt,
+                        persistent_dedupe,
+                        generation,
+                    ),
                 )
             )
         return True
@@ -324,6 +340,7 @@ class SpeechEngine:
             self._clear_queue_locked()
             self._last_spoken.clear()
             self._last_enqueued.clear()
+            self._persistent_seen.clear()
             backend = self._backend
             if backend is not None:
                 try:
@@ -370,6 +387,32 @@ class SpeechEngine:
             self._queue.put(item)
         return has_pending
 
+    def _persistent_dedupe_ttl_seconds(self) -> float:
+        return max(0.0, self._config.persistent_dedupe_ttl_seconds)
+
+    def _is_persistent_dedupe_blocked_locked(self, key: str, now: float) -> bool:
+        ttl_seconds = self._persistent_dedupe_ttl_seconds()
+        if ttl_seconds <= 0:
+            return False
+        seen_at = self._persistent_seen.get(key)
+        if seen_at is None:
+            return False
+        if now - seen_at >= ttl_seconds:
+            self._persistent_seen.pop(key, None)
+            return False
+        return True
+
+    def _prune_persistent_dedupe_locked(self, now: float) -> None:
+        ttl_seconds = self._persistent_dedupe_ttl_seconds()
+        if ttl_seconds <= 0:
+            self._persistent_seen.clear()
+            return
+        expired_keys = [
+            key for key, seen_at in self._persistent_seen.items() if now - seen_at >= ttl_seconds
+        ]
+        for key in expired_keys:
+            self._persistent_seen.pop(key, None)
+
     def _run(self) -> None:
         self._backend = self._build_backend()
         if self._backend is None:
@@ -397,6 +440,8 @@ class SpeechEngine:
                     with self._lock:
                         if self._current_message is message:
                             self._last_spoken[message.dedupe_key] = time.time()
+                            if message.persistent_dedupe:
+                                self._persistent_seen[message.dedupe_key] = time.time()
                             self._current_message = None
                     continue
 
@@ -413,7 +458,10 @@ class SpeechEngine:
                     with self._lock:
                         if self._current_message is message:
                             if completed:
-                                self._last_spoken[message.dedupe_key] = time.time()
+                                spoken_at = time.time()
+                                self._last_spoken[message.dedupe_key] = spoken_at
+                                if message.persistent_dedupe:
+                                    self._persistent_seen[message.dedupe_key] = spoken_at
                             self._current_message = None
                 except Exception as exc:
                     with self._lock:

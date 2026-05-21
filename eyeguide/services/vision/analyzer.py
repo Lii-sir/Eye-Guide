@@ -115,6 +115,7 @@ class SceneAnalyzer:
             self._heuristics.collect_people_events(frame, analysis, self._frame_index)
             self._heuristics.collect_ground_obstacle_events(frame, analysis)
             analysis.boxes = self._tracker.update(analysis.boxes)
+            self._normalize_heuristic_event_dedupe_keys(analysis)
 
         self._blind_road.enrich_analysis(
             frame,
@@ -331,7 +332,7 @@ class SceneAnalyzer:
             label = HAZARD_LABELS[box.label]
             direction_text = box.relative_direction or self._relative_direction(box.box, width)
             distance_band = "near"
-            if distance_meters <= 0.8:
+            if distance_meters <= 0.5:
                 distance_band = "very-near"
             elif distance_meters <= 1.4:
                 distance_band = "close"
@@ -348,6 +349,7 @@ class SceneAnalyzer:
                     channel="vision",
                     priority=priority,
                     cooldown_seconds=5.5,
+                    persistent_dedupe=True,
                 )
             )
 
@@ -403,6 +405,26 @@ class SceneAnalyzer:
         if cached:
             return f"{label} 缓存"
         return f"{label} {duration_ms:.0f}ms"
+
+    def _normalize_heuristic_event_dedupe_keys(self, analysis: FrameAnalysis) -> None:
+        for event in analysis.events:
+            if event.category.startswith("person:"):
+                direction_text = event.category.split(":", 1)[1]
+                event.dedupe_key = self._object_event_dedupe_key(
+                    "person",
+                    direction_text,
+                    "heuristic",
+                )
+                event.persistent_dedupe = True
+                continue
+
+            if event.category == "ground_obstacle:front":
+                event.dedupe_key = self._object_event_dedupe_key(
+                    "ground_obstacle",
+                    "正前方",
+                    "heuristic",
+                )
+                event.persistent_dedupe = True
 
     def _object_event_dedupe_key(
         self,

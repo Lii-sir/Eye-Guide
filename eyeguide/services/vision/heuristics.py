@@ -58,6 +58,7 @@ class HeuristicVisionDetector:
                     dedupe_key=f"person:{relative_direction}",
                     priority=priority,
                     cooldown_seconds=5.0,
+                    persistent_dedupe=True,
                 )
             )
 
@@ -96,6 +97,7 @@ class HeuristicVisionDetector:
                     dedupe_key="ground_obstacle:front",
                     priority=2,
                     cooldown_seconds=5.5,
+                    persistent_dedupe=True,
                 )
             )
             break

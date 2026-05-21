@@ -134,6 +134,7 @@ class SessionController:
                         dedupe_key=event.dedupe_key or event.category,
                         cooldown_seconds=event.cooldown_seconds,
                         channel=event.channel,
+                        persistent_dedupe=event.persistent_dedupe,
                         replace_pending=event.channel in {"vision", "blind_road"},
                         interrupt=True
                         if is_blind_road_event
