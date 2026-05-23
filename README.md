@@ -44,6 +44,7 @@ EyeGuide 不是一个单纯的目标检测 Demo，而是一个面向盲人出行
 
 ### 演示视频
 
+以下视频不是最新版本，详情可见博客：[CSDN盲人出行辅助系统](https://blog.csdn.net/m0_74062928/article/details/161229133?spm=1011.2415.3001.10575&sharefrom=mp_manage_link)
 - [盲人出行辅助系统](https://live.csdn.net/v/527244?spm=1001.2014.3001.5501)
 - [盲道识别](https://live.csdn.net/v/527555?spm=1001.2014.3001.5501)
 
@@ -135,25 +136,21 @@ SessionController
 ### 1. 克隆仓库
 
 ```bash
-git clone <你的仓库地址>
+git clone https://github.com/Lii-sir/Eye-Guide.git
 cd EyeGuide
 ```
 
-### 2. 安装基础依赖
+### 2. 安装依赖
 
 ```bash
 uv sync
 ```
-
-### 3. 安装 YOLO 相关依赖
-
-如果你希望启用 YOLO 检测与跟踪：
-
+或者
 ```bash
-uv sync --extra yolo
+pip install -r requirements.txt
 ```
 
-### 4. 启动程序
+### 3. 启动程序
 
 ```bash
 uv run eyeguide
@@ -173,6 +170,11 @@ python app.py
 
 ```bash
 uv run eyeguide
+```
+或者：
+
+```bash
+python app.py
 ```
 
 ### 启动图片搜索工具
