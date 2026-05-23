@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from queue import Queue
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Optional, Union
 
 import cv2
@@ -29,6 +29,8 @@ class SessionController:
         self._route_guidance = RouteGuidance(self._config.navigation, self._speech, self._emit)
         self._stop_event = Event()
         self._thread: Optional[Thread] = None
+        self._capture_lock = Lock()
+        self._active_capture: Optional[cv2.VideoCapture] = None
 
     @property
     def is_running(self) -> bool:
@@ -70,9 +72,19 @@ class SessionController:
     def stop(self) -> None:
         self._stop_event.set()
         self._speech.cancel_all()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
+        self._release_active_capture()
+
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=3.0)
+            if thread.is_alive():
+                self._emit("status", "会话正在停止，请稍后再试。")
+                self._emit("log", "会话线程仍在退出中，已请求停止摄像头与语音。")
+                return
+
         self._thread = None
+        self._route_guidance.set_route(None)
+        self._emit("route", "暂无导航指令")
         cv2.destroyAllWindows()
         self._emit("status", "处理会话已停止。")
 
@@ -97,6 +109,7 @@ class SessionController:
             self._emit("error", "无法打开摄像头或视频源。")
             self._stop_event.set()
             return
+        self._set_active_capture(cap)
 
         self._speech.speak("视觉感知已启动，按 Q 键退出。", priority=4, cooldown_seconds=1.0)
         self._emit("log", f"{mode.value}处理循环已开始。快捷键：Q 退出，N 下一条导航，R 重复导航。")
@@ -110,6 +123,7 @@ class SessionController:
                     if reopened is not None:
                         cap.release()
                         cap = reopened
+                        self._set_active_capture(cap)
                         self._emit("log", "Camera stream dropped; reconnecting.")
                         continue
                     self._emit("log", "视频流结束或读取失败。")
@@ -126,9 +140,7 @@ class SessionController:
                 if analysis.events:
                     event = analysis.events[0]
                     is_blind_road_event = event.channel == "blind_road"
-                    # if event.channel == "vision":
-                    #     self._emit("log", f"TTS视觉入队：{event.message}")
-                    enqueued = self._speech.speak(
+                    self._speech.speak(
                         event.message,
                         priority=event.priority,
                         dedupe_key=event.dedupe_key or event.category,
@@ -140,8 +152,6 @@ class SessionController:
                         if is_blind_road_event
                         else (False if event.channel == "vision" else event.priority <= 1),
                     )
-                    # if not enqueued and event.channel == "vision":
-                    #     self._emit("log", f"TTS视觉跳过：{event.message}")
 
                 if time.time() - last_status_emit > self._config.vision.status_emit_interval_seconds:
                     self._emit("hazard", analysis.hazard_summary or "环境相对安全")
@@ -158,6 +168,7 @@ class SessionController:
                     self.repeat_route_step()
         finally:
             cap.release()
+            self._clear_active_capture(cap)
             cv2.destroyAllWindows()
             self._stop_event.set()
             self._speech.cancel_all()
@@ -189,3 +200,22 @@ class SessionController:
 
     def _emit(self, kind: str, value: str) -> None:
         self._event_queue.put(AppEvent(kind=kind, value=value))
+
+    def _set_active_capture(self, cap: cv2.VideoCapture) -> None:
+        with self._capture_lock:
+            self._active_capture = cap
+
+    def _clear_active_capture(self, cap: cv2.VideoCapture) -> None:
+        with self._capture_lock:
+            if self._active_capture is cap:
+                self._active_capture = None
+
+    def _release_active_capture(self) -> None:
+        with self._capture_lock:
+            cap = self._active_capture
+            self._active_capture = None
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
