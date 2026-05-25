@@ -1,164 +1,205 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EyeGuide 手机控制台</title>
-  <link rel="stylesheet" href="./style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>EyeGuide Mobile MVP</title>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <main class="container">
-    <section class="hero">
-      <p class="eyebrow">EyeGuide Phone Cloud</p>
-      <h1>手机采集，电脑推理</h1>
-      <p class="hero-copy">手机负责定位、方向与相机采集，电脑沿用桌面端策略做导航、视觉推理和播报决策。</p>
-    </section>
-
-    <section class="panel status-panel">
-      <div class="section-head">
-        <h2>实时状态</h2>
-        <span id="connectionBadge" class="badge badge-offline">未连接</span>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">EyeGuide Mobile MVP</p>
+        <h1>手机感知，电脑推理</h1>
+        <p class="hero-text">
+          手机负责相机、定位、姿态与语音播报，电脑保留现有视觉分析与路线决策能力。
+        </p>
       </div>
-      <div class="status-grid">
-        <article class="status-card">
-          <span class="status-label">系统状态</span>
-          <strong id="sessionStatus" class="status-value">等待启动</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">GPS 状态</span>
-          <strong id="gpsStatus" class="status-value">未开始定位</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">当前位置</span>
-          <strong id="gpsFix" class="status-value">暂无定位坐标</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">视觉播报</span>
-          <strong id="hazardStatus" class="status-value">暂无实时信息</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">路线指令</span>
-          <strong id="routeStatus" class="status-value">暂无导航指令</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">语音状态</span>
-          <strong id="speechStatus" class="status-value">等待用户点击启用音频</strong>
-        </article>
+      <div class="hero-status">
+        <span id="connectionBadge" class="badge offline">未连接</span>
+        <span id="latencyBadge" class="badge neutral">等待首帧</span>
       </div>
-    </section>
+    </header>
 
-    <section class="panel">
-      <div class="section-head">
-        <h2>模式控制</h2>
-      </div>
-      <div class="button-grid">
-        <button id="startExploreBtn" class="btn btn-primary">启动自由探索</button>
-        <button id="startNavigationBtn" class="btn btn-primary">启动路线导航</button>
-        <button id="testSpeechBtn" class="btn">测试语音播报</button>
-        <button id="stopBtn" class="btn btn-danger" disabled>停止当前会话</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>连接与路线配置</h2>
-      </div>
-
-      <label class="field-label" for="wsUrl">WebSocket 地址</label>
-      <input id="wsUrl" class="text-input" value="ws://192.168.1.100:8000/ws/track" />
-
-      <div class="grid two-col">
-        <div>
-          <label class="field-label" for="provider">导航提供方</label>
-          <select id="provider" class="text-input">
-            <option value="osm">OSM</option>
-            <option value="amap">高德</option>
-          </select>
+    <main class="layout">
+      <section class="panel spotlight">
+        <div class="panel-head">
+          <h2>实时预览</h2>
+          <button id="speakUnlockBtn" class="ghost-btn">启用语音</button>
         </div>
-        <div>
-          <label class="field-label" for="objectSpeechDedupMode">普通物体播报去重</label>
-          <select id="objectSpeechDedupMode" class="text-input">
-            <option value="detailed">详细播报</option>
-            <option value="simple">简单播报</option>
-          </select>
+        <div class="preview-wrap">
+          <video id="cameraPreview" class="preview" playsinline autoplay muted></video>
+          <canvas id="overlayCanvas" class="overlay"></canvas>
         </div>
-      </div>
-
-      <label class="field-label" for="amapApiKey">高德 Web Key（可选）</label>
-      <input id="amapApiKey" class="text-input" value="" placeholder="仅高德路线/候选搜索需要" />
-
-      <div class="grid two-col">
-        <div>
-          <label class="field-label" for="origin">起点</label>
-          <input id="origin" class="text-input" value="@gps" placeholder="可填写 @gps 使用当前位置" />
+        <div class="status-grid">
+          <article class="status-card">
+            <span class="status-label">会话状态</span>
+            <strong id="sessionStatus" class="status-value">等待连接</strong>
+          </article>
+          <article class="status-card">
+            <span class="status-label">定位状态</span>
+            <strong id="gpsStatus" class="status-value">未开始</strong>
+          </article>
+          <article class="status-card wide">
+            <span class="status-label">当前位置</span>
+            <strong id="gpsFix" class="status-value">暂无定位坐标</strong>
+          </article>
+          <article class="status-card wide">
+            <span class="status-label">风险播报</span>
+            <strong id="hazardStatus" class="status-value">暂无实时信息</strong>
+          </article>
+          <article class="status-card wide">
+            <span class="status-label">导航指令</span>
+            <strong id="routeStatus" class="status-value">暂无导航指令</strong>
+          </article>
+          <article class="status-card">
+            <span class="status-label">语音状态</span>
+            <strong id="speechStatus" class="status-value">等待启用</strong>
+          </article>
         </div>
-        <div>
-          <label class="field-label" for="destination">终点</label>
-          <input id="destination" class="text-input" value="" placeholder="输入地址或经纬度" />
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>连接控制</h2>
         </div>
-      </div>
-
-      <div class="button-grid compact">
-        <button id="useCurrentGpsBtn" class="btn">用当前位置填起点</button>
-        <button id="searchRouteBtn" class="btn">搜索终点候选</button>
-        <button id="setRouteBtn" class="btn">生成路线</button>
-        <button id="clearRouteBtn" class="btn btn-muted">清除路线</button>
-        <button id="nextRouteBtn" class="btn">下一条指令</button>
-        <button id="repeatRouteBtn" class="btn">重复当前指令</button>
-      </div>
-
-      <div id="candidatePanel" class="candidate-panel hidden">
-        <div class="section-head inline">
-          <h3>终点候选</h3>
-          <span id="candidateSummary" class="mini-hint">暂无候选</span>
+        <label class="field">
+          <span>WebSocket 地址</span>
+          <input id="wsUrl" class="text-input" type="text" value="">
+        </label>
+        <div class="button-row">
+          <button id="connectBtn" class="primary-btn">连接服务</button>
+          <button id="disconnectBtn" class="muted-btn">断开连接</button>
+          <button id="testSpeechBtn" class="ghost-btn">测试语音</button>
         </div>
-        <div id="candidateList" class="candidate-list"></div>
-      </div>
-    </section>
+      </section>
 
-    <section class="panel">
-      <div class="section-head">
-        <h2>相机与模拟</h2>
-      </div>
-
-      <div class="grid two-col">
-        <div>
-          <label class="field-label" for="frameIntervalMs">最小上传间隔（ms，0 表示尽量每帧）</label>
-          <input id="frameIntervalMs" class="text-input" value="0" />
+      <section class="panel">
+        <div class="panel-head">
+          <h2>采集配置</h2>
         </div>
-        <div>
-          <label class="field-label" for="frameQuality">JPEG 质量（0-1）</label>
-          <input id="frameQuality" class="text-input" value="0.6" />
+        <div class="form-grid">
+          <label class="field">
+            <span>相机</span>
+            <select id="cameraSelect" class="text-input">
+              <option value="environment">后置相机（推荐）</option>
+              <option value="user">前置相机</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>GPS 数据源</span>
+            <select id="gpsSourceSelect" class="text-input">
+              <option value="hybrid">混合上报（推荐）</option>
+              <option value="frame-only">仅随画面携带</option>
+              <option value="separate-only">仅独立定位消息</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>画质</span>
+            <select id="qualitySelect" class="text-input">
+              <option value="0.45">流畅</option>
+              <option value="0.6" selected>均衡（推荐）</option>
+              <option value="0.75">清晰</option>
+              <option value="0.85">高保真</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>帧率</span>
+            <select id="fpsSelect" class="text-input">
+              <option value="2">2 FPS</option>
+              <option value="4">4 FPS</option>
+              <option value="6" selected>6 FPS（推荐）</option>
+              <option value="8">8 FPS</option>
+              <option value="10">10 FPS</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>配置档</span>
+            <select id="profileSelect" class="text-input">
+              <option value="balanced" selected>均衡档（推荐）</option>
+              <option value="realtime">低延迟档</option>
+              <option value="clarity">高清档</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>分辨率</span>
+            <select id="resolutionSelect" class="text-input">
+              <option value="480">480p</option>
+              <option value="640" selected>640p（推荐）</option>
+              <option value="720">720p</option>
+            </select>
+          </label>
         </div>
-      </div>
+        <div class="button-row">
+          <button id="startCaptureBtn" class="primary-btn">开始采集</button>
+          <button id="stopCaptureBtn" class="muted-btn">停止采集</button>
+          <button id="refreshCameraBtn" class="ghost-btn">刷新相机列表</button>
+        </div>
+        <p id="captureHint" class="hint">
+          说明：所有关键配置都使用下拉菜单，避免手机端误触造成模式切换不明确。
+        </p>
+      </section>
 
-      <div class="button-grid compact">
-        <button id="startCameraBtn" class="btn">启动相机上传</button>
-        <button id="stopCameraBtn" class="btn btn-muted" disabled>停止相机上传</button>
-      </div>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>导航配置</h2>
+        </div>
+        <div class="form-grid">
+          <label class="field">
+            <span>导航提供方</span>
+            <select id="providerSelect" class="text-input">
+              <option value="osm" selected>OSM（推荐）</option>
+              <option value="amap">高德</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>普通物体播报模式</span>
+            <select id="dedupModeSelect" class="text-input">
+              <option value="detailed" selected>详细播报（推荐）</option>
+              <option value="simple">简单播报</option>
+            </select>
+          </label>
+          <label class="field wide-field">
+            <span>高德 Web Key</span>
+            <input id="amapKeyInput" class="text-input" type="text" placeholder="使用高德时再填写">
+          </label>
+          <label class="field">
+            <span>起点</span>
+            <input id="originInput" class="text-input" type="text" value="@gps">
+          </label>
+          <label class="field">
+            <span>终点</span>
+            <input id="destinationInput" class="text-input" type="text" placeholder="输入地名或地址">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="useGpsOriginBtn" class="ghost-btn">用当前位置填起点</button>
+          <button id="searchRouteBtn" class="ghost-btn">搜索候选</button>
+          <button id="setRouteBtn" class="primary-btn">生成路线</button>
+          <button id="clearRouteBtn" class="muted-btn">清除路线</button>
+          <button id="nextRouteBtn" class="ghost-btn">下一条</button>
+          <button id="repeatRouteBtn" class="ghost-btn">重复播报</button>
+        </div>
+        <div id="candidatePanel" class="candidate-panel hidden">
+          <div class="panel-head compact">
+            <h3>候选终点</h3>
+            <span id="candidateSummary" class="mini-text">暂无候选</span>
+          </div>
+          <div id="candidateList" class="candidate-list"></div>
+        </div>
+      </section>
 
-      <div class="upload-row">
-        <input id="imagePicker" class="text-input" type="file" accept="image/*" capture="environment" />
-        <button id="sendPickedImageBtn" class="btn">发送图片模拟推理</button>
-      </div>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>运行日志</h2>
+        </div>
+        <pre id="logBox" class="log-box"></pre>
+      </section>
+    </main>
+  </div>
 
-      <p id="cameraDiag" class="hint"></p>
-
-      <div class="preview-wrap">
-        <video id="cameraPreview" class="preview" playsinline autoplay muted></video>
-        <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
-      </div>
-      <canvas id="frameCanvas" class="hidden-canvas"></canvas>
-    </section>
-
-    <section class="panel">
-      <div class="section-head">
-        <h2>运行日志</h2>
-      </div>
-      <pre id="log" class="log"></pre>
-    </section>
-  </main>
-
+  <canvas id="frameCanvas" class="hidden-canvas"></canvas>
   <script src="./app.js"></script>
 </body>
 </html>

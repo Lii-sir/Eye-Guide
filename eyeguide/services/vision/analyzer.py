@@ -105,13 +105,19 @@ class SceneAnalyzer:
         self._frame_index += 1
         analysis = FrameAnalysis()
         _, width = frame.shape[:2]
+        # 约定：只要 YOLO 后端已经成功加载，就认为“主检测器可用”。
+        # 此时整套 OpenCV 启发式只作为兜底方案，不再参与当前帧分析，
+        # 以避免出现“YOLO 已经识别到 person，但启发式 step 抢走播报”的冲突。
+        use_heuristics_fallback = not self._yolo.is_available
 
         predictions, depth_estimate, blind_road_estimate, stats = self._run_inference(frame)
 
         if predictions:
             analysis.boxes.extend(self._predictions_to_boxes(depth_estimate, predictions, width))
             self._collect_yolo_events(frame, analysis.boxes, analysis)
-        else:
+        elif use_heuristics_fallback:
+            # 只有在 YOLO 不可用时，才退回到启发式检测。
+            # 注意这里的兜底不只是“没人框”，还包含地面障碍等传统视觉规则。
             self._heuristics.collect_people_events(frame, analysis, self._frame_index)
             self._heuristics.collect_ground_obstacle_events(frame, analysis)
             analysis.boxes = self._tracker.update(analysis.boxes)
@@ -124,7 +130,11 @@ class SceneAnalyzer:
             self._frame_index,
             estimate=blind_road_estimate,
         )
-        self._heuristics.collect_step_events(frame, analysis)
+        if use_heuristics_fallback:
+            # 台阶检测同样归属于启发式链路。
+            # 只要 YOLO 已经启动成功，就不再让 step heuristic 参与播报，
+            # 防止误报台阶覆盖更可靠的目标检测结果。
+            self._heuristics.collect_step_events(frame, analysis)
         self._apply_speech_policy(analysis)
         self._draw_detection_boxes(frame, analysis.boxes)
 
