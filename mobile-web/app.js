@@ -57,9 +57,15 @@
     lastImu: null,
     selectedCandidate: null,
     latestFrameClientTs: 0,
-    latestSpokenText: "",
+    latestSpeechKey: "",
     lastSpeechAt: 0,
+    speakingNow: false,
   };
+
+  // 视觉框要求更强的时效性，超过 500ms 就不再可信；
+  // 但语音提示在移动端可以适当放宽，否则网络稍有抖动时，
+  // 前端会因为 should_drop 提前 return，导致“测试语音正常、实时语音完全不响”。
+  const SPEECH_MAX_RESULT_AGE_MS = 1500;
 
   function log(message) {
     const line = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -186,28 +192,46 @@
     return true;
   }
 
-  function speakText(text) {
+  function speakText(text, eventKey) {
     const normalized = String(text || "").trim();
     if (!normalized || !state.audioUnlocked) {
       return;
     }
 
+    const normalizedKey = String(eventKey || normalized).trim();
     const now = Date.now();
-    if (normalized === state.latestSpokenText && now - state.lastSpeechAt < 2500) {
+
+    // ?????????????????????????????
+    if (normalizedKey === state.latestSpeechKey && now - state.lastSpeechAt < 2500) {
       return;
     }
 
-    state.latestSpokenText = normalized;
+    // ???????????????????
+    if (state.speakingNow && normalizedKey !== state.latestSpeechKey) {
+      window.speechSynthesis.cancel();
+    }
+
+    state.latestSpeechKey = normalizedKey;
     state.lastSpeechAt = now;
-    window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(normalized);
     utterance.lang = "zh-CN";
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
+    utterance.onstart = function () {
+      state.speakingNow = true;
+      setText(elements.speechStatus, "???");
+    };
+    utterance.onend = function () {
+      state.speakingNow = false;
+      setText(elements.speechStatus, "?????");
+    };
+    utterance.onerror = function () {
+      state.speakingNow = false;
+      setText(elements.speechStatus, "?????");
+    };
     window.speechSynthesis.speak(utterance);
-    setText(elements.speechStatus, "播报中");
   }
 
   function getProfilePreset(profile) {
@@ -587,7 +611,20 @@
 
     if (shouldDrop) {
       setLatencyBadge(`结果过期 ${Math.round(age)}ms`, "warning");
-      log(`丢弃过期结果：frame=${payload.frame_id} age=${Math.round(age)}ms`);
+      log(`检测结果已过期：frame=${payload.frame_id} age=${Math.round(age)}ms`);
+
+      // 对于明显过期的结果，继续丢弃框绘制，避免画面和结果错位。
+      // 但如果只是“略微过期”，仍然允许更新状态文本并播报，
+      // 这样手机端至少还能听到风险提示，而不是完全静默。
+      setText(elements.hazardStatus, payload.hazard_summary || "环境相对安全");
+
+      const staleSpeechText = String(payload.top_event || payload.hazard_summary || "").trim();
+      const staleEventKey = String(
+        (payload.events && payload.events[0] && (payload.events[0].dedupe_key || payload.events[0].category)) || staleSpeechText
+      ).trim();
+      if (age <= SPEECH_MAX_RESULT_AGE_MS && staleSpeechText) {
+        speakText(staleSpeechText, staleEventKey);
+      }
       return;
     }
 
@@ -609,8 +646,11 @@
     drawBoxes(payload);
 
     const speechText = String(payload.top_event || payload.hazard_summary || "").trim();
+    const topEventKey = String(
+      (payload.events && payload.events[0] && (payload.events[0].dedupe_key || payload.events[0].category)) || speechText
+    ).trim();
     if (speechText) {
-      speakText(speechText);
+      speakText(speechText, topEventKey);
     }
   }
 

@@ -472,12 +472,6 @@ class ApiSession:
             return
 
         text = payload.text or "这是一条语音测试。如果你能听到这句话，说明播报已经恢复。"
-        self._services.speech.speak(
-            text,
-            priority=1,
-            dedupe_key="api:test-speech",
-            cooldown_seconds=0.0,
-        )
         await self._send(ok_message("speech.test.result", {"text": text}, seq=envelope.seq))
 
     async def _handle_config_update(self, envelope: ClientEnvelope) -> None:
@@ -582,7 +576,8 @@ class ApiSession:
         if route_line:
             self._last_route_text = route_line
 
-        self._speak_top_event(analysis.events)
+        # API / mobile-web 模式下，服务端不直接在电脑本机播报，
+        # 而是把结果文本回传给前端，由手机浏览器负责最终发声。
         self._last_hazard_text = analysis.hazard_summary or "环境相对安全"
 
         infer_end_mono = time.perf_counter()
@@ -839,26 +834,6 @@ class ApiSession:
         d_lambda = math.radians(lon2 - lon1)
         a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
         return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    def _speak_top_event(self, events: list[DetectionEvent]) -> None:
-        """沿用桌面端核心播报策略，只播报当前最重要事件。"""
-
-        if not events:
-            return
-        event = events[0]
-        is_blind_road_event = event.channel == "blind_road"
-        self._services.speech.speak(
-            event.message,
-            priority=event.priority,
-            dedupe_key=event.dedupe_key or event.category,
-            cooldown_seconds=event.cooldown_seconds,
-            channel=event.channel,
-            persistent_dedupe=event.persistent_dedupe,
-            replace_pending=event.channel in {"vision", "blind_road"},
-            interrupt=True
-            if is_blind_road_event
-            else (False if event.channel == "vision" else event.priority <= 1),
-        )
 
     def _hazard_level_from_events(self, events: list[DetectionEvent]) -> str:
         """把事件优先级映射成前端更容易展示的风险等级。"""
