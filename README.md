@@ -389,3 +389,111 @@ EyeGuide/
 - `OSRM`
 - `Nominatim`
 - `Amap Web API`
+
+---
+
+## 手机 Web 控制端启动
+
+如果你要在手机浏览器里打开 `mobile-web` 页面，并调用手机摄像头、GPS、TTS，需要注意一件很关键的事：
+
+- **电脑本机调试** 可以先用 `http://127.0.0.1:8010/mobile/`
+- **手机访问电脑** 时，必须使用 **HTTPS**
+- 原因是手机浏览器的 `getUserMedia()` 只允许在安全上下文中调用摄像头
+
+### 1. 生成本地开发证书
+
+项目内已经提供了一个开发证书脚本：
+
+```bash
+uv run python scripts/generate_dev_cert.py
+```
+
+生成结果位于：
+
+```text
+.tmp/dev-cert/localhost-cert.pem
+.tmp/dev-cert/localhost-key.pem
+```
+
+### 2. 推荐启动方式：一键 HTTPS 启动脚本
+
+项目内已经提供了 Windows 启动脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev-api-https.ps1
+```
+
+这个脚本会自动完成：
+
+1. 生成或刷新开发证书
+2. 清理占用 `8010` 端口的旧服务
+3. 用 HTTPS 启动 API 服务
+
+### 3. Python 启动方式
+
+如果你不想用 PowerShell 脚本，也可以直接用 Python 方式启动：
+
+```bash
+uv run python -m uvicorn eyeguide.api.server:app --host 0.0.0.0 --port 8010 --ssl-certfile .tmp/dev-cert/localhost-cert.pem --ssl-keyfile .tmp/dev-cert/localhost-key.pem
+```
+
+这条命令的作用是：
+
+- 使用当前项目环境运行 `uvicorn`
+- 启动 `eyeguide.api.server` 里的 `app`
+- 对外监听 `8010` 端口
+- 通过本地开发证书启用 HTTPS
+
+### 4. 电脑与手机如何访问
+
+启动成功后：
+
+- 电脑本机访问：
+
+```text
+https://127.0.0.1:8010/mobile/
+```
+
+- 手机访问：
+
+```text
+https://你的电脑局域网IP:8010/mobile/
+```
+
+例如：
+
+```text
+https://192.168.1.23:8010/mobile/
+```
+
+查看电脑局域网 IP：
+
+```powershell
+ipconfig
+```
+
+然后找到类似 `IPv4 地址` 的那一行即可。
+
+### 5. 手机访问前的注意事项
+
+1. 手机和电脑必须在同一个局域网下
+2. 手机必须访问 `https://...`，不能用 `http://...`
+3. 第一次访问时，浏览器可能会提示证书不受信任
+4. 这是本地开发证书，手机上需要手动继续访问或信任证书
+5. 放行证书后，再允许浏览器使用摄像头和定位权限
+
+### 6. 常见问题
+
+#### 手机页面能打开，但摄像头打不开
+
+通常是以下原因之一：
+
+1. 当前访问地址还是 `http://...`
+2. 浏览器没有授予摄像头权限
+3. 证书没有被手机接受
+4. 手机和电脑不在同一网络
+
+#### 为什么电脑浏览器用 HTTP 有时也能调试，但手机不行
+
+因为电脑本机访问 `localhost` / `127.0.0.1` 时，浏览器对本地开发更宽松；但手机访问 `http://电脑IP:8010/...` 不属于安全上下文，所以手机浏览器会拒绝摄像头调用。
+
