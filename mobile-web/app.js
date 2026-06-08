@@ -60,6 +60,11 @@
     latestSpeechKey: "",
     lastSpeechAt: 0,
     speakingNow: false,
+    lastSpokenByKey: {},
+    persistentSeen: {},
+    speechPolicy: {
+      persistentDedupeTtlSeconds: 20,
+    },
   };
 
   // 视觉框要求更强的时效性，超过 500ms 就不再可信；
@@ -192,27 +197,57 @@
     return true;
   }
 
-  function speakText(text, eventKey) {
+  function prunePersistentSeen(now) {
+    const ttlMs = Math.max(0, Number(state.speechPolicy.persistentDedupeTtlSeconds || 20) * 1000);
+    Object.keys(state.persistentSeen).forEach(function (key) {
+      if (now - Number(state.persistentSeen[key] || 0) >= ttlMs) {
+        delete state.persistentSeen[key];
+      }
+    });
+  }
+
+  function speakText(text, meta) {
     const normalized = String(text || "").trim();
     if (!normalized || !state.audioUnlocked) {
       return;
     }
 
-    const normalizedKey = String(eventKey || normalized).trim();
+    const options = meta || {};
+    const eventKey = String(options.eventKey || normalized).trim();
+    const cooldownMs = Math.max(0, Number(options.cooldownSeconds || 0) * 1000);
+    const persistentDedupe = !!options.persistentDedupe;
+    const channel = String(options.channel || "general");
+    const replacePending = !!options.replacePending;
+    const interrupt = !!options.interrupt;
     const now = Date.now();
 
-    // ?????????????????????????????
-    if (normalizedKey === state.latestSpeechKey && now - state.lastSpeechAt < 2500) {
+    prunePersistentSeen(now);
+
+    const recentAt = Number(state.lastSpokenByKey[eventKey] || 0);
+    if (recentAt > 0 && now - recentAt < cooldownMs) {
       return;
     }
 
-    // ???????????????????
-    if (state.speakingNow && normalizedKey !== state.latestSpeechKey) {
+    if (persistentDedupe && state.persistentSeen[eventKey]) {
+      return;
+    }
+
+    // ?????????
+    // - interrupt=True ????????????
+    // - ?????????? replace_pending=True ????????
+    const shouldInterruptCurrent = state.speakingNow && (
+      interrupt || (replacePending && eventKey !== state.latestSpeechKey)
+    );
+    if (shouldInterruptCurrent) {
       window.speechSynthesis.cancel();
     }
 
-    state.latestSpeechKey = normalizedKey;
+    state.latestSpeechKey = eventKey;
     state.lastSpeechAt = now;
+    state.lastSpokenByKey[eventKey] = now;
+    if (persistentDedupe) {
+      state.persistentSeen[eventKey] = now;
+    }
 
     const utterance = new SpeechSynthesisUtterance(normalized);
     utterance.lang = "zh-CN";
@@ -618,12 +653,20 @@
       // 这样手机端至少还能听到风险提示，而不是完全静默。
       setText(elements.hazardStatus, payload.hazard_summary || "环境相对安全");
 
-      const staleSpeechText = String(payload.top_event || payload.hazard_summary || "").trim();
+      const staleSpeechText = String(payload.top_event || "").trim();
+      const staleTopEvent = payload.events && payload.events[0] ? payload.events[0] : null;
       const staleEventKey = String(
-        (payload.events && payload.events[0] && (payload.events[0].dedupe_key || payload.events[0].category)) || staleSpeechText
+        (staleTopEvent && (staleTopEvent.dedupe_key || staleTopEvent.category)) || staleSpeechText
       ).trim();
       if (age <= SPEECH_MAX_RESULT_AGE_MS && staleSpeechText) {
-        speakText(staleSpeechText, staleEventKey);
+        speakText(staleSpeechText, {
+          eventKey: staleEventKey,
+          cooldownSeconds: staleTopEvent ? staleTopEvent.cooldown_seconds : 0,
+          persistentDedupe: staleTopEvent ? staleTopEvent.persistent_dedupe : false,
+          channel: staleTopEvent ? staleTopEvent.channel : "vision",
+          replacePending: staleTopEvent ? staleTopEvent.replace_pending : true,
+          interrupt: staleTopEvent ? staleTopEvent.interrupt : false,
+        });
       }
       return;
     }
@@ -645,12 +688,22 @@
 
     drawBoxes(payload);
 
-    const speechText = String(payload.top_event || payload.hazard_summary || "").trim();
+    // 与桌面端保持一致：只有真正的事件才触发播报。
+    // “环境相对安全”只作为状态文本展示，不参与 TTS。
+    const speechText = String(payload.top_event || "").trim();
+    const topEvent = payload.events && payload.events[0] ? payload.events[0] : null;
     const topEventKey = String(
-      (payload.events && payload.events[0] && (payload.events[0].dedupe_key || payload.events[0].category)) || speechText
+      (topEvent && (topEvent.dedupe_key || topEvent.category)) || speechText
     ).trim();
     if (speechText) {
-      speakText(speechText, topEventKey);
+      speakText(speechText, {
+        eventKey: topEventKey,
+        cooldownSeconds: topEvent ? topEvent.cooldown_seconds : 0,
+        persistentDedupe: topEvent ? topEvent.persistent_dedupe : false,
+        channel: topEvent ? topEvent.channel : "vision",
+        replacePending: topEvent ? topEvent.replace_pending : true,
+        interrupt: topEvent ? topEvent.interrupt : false,
+      });
     }
   }
 

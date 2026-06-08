@@ -123,6 +123,9 @@ class ApiSession:
                     "backend": self._analyzer.backend_name,
                     "frame_queue_mode": "single-slot-lifo",
                     "stale_after_ms": CLIENT_STALE_RESULT_MS,
+                    "speech_policy": {
+                        "persistent_dedupe_ttl_seconds": self._services.config.speech.persistent_dedupe_ttl_seconds,
+                    },
                 },
             )
         )
@@ -192,6 +195,9 @@ class ApiSession:
                     "state": self._build_state_payload(),
                     "frame_queue_mode": "single-slot-lifo",
                     "stale_after_ms": CLIENT_STALE_RESULT_MS,
+                    "speech_policy": {
+                        "persistent_dedupe_ttl_seconds": self._services.config.speech.persistent_dedupe_ttl_seconds,
+                    },
                 },
                 seq=envelope.seq,
             )
@@ -856,6 +862,11 @@ class ApiSession:
             "channel": event.channel,
             "priority": event.priority,
             "cooldown_seconds": event.cooldown_seconds,
+            "persistent_dedupe": event.persistent_dedupe,
+            "replace_pending": event.channel in {"vision", "blind_road"},
+            "interrupt": True
+            if event.channel == "blind_road"
+            else (False if event.channel == "vision" else event.priority <= 1),
             "dedupe_key": event.dedupe_key,
             "timestamp": event.timestamp,
         }
