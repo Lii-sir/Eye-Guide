@@ -1,5 +1,7 @@
 # EyeGuide
 
+> **V2 重建准备（2026-10-27）**：已清理旧构建产物，当前运行入口仍为 V1。清理范围与下一步见 [重建记录](docs/rebuild-start-2026-10-27.md)，架构以 [工程落地规划](docs/engineering-delivery-plan-2026-10-23.md) 为准。
+
 <p align="center">
   <strong>面向盲人出行辅助的桌面视觉导航原型</strong><br/>
   将 <code>YOLO</code>、<code>Depth Anything V2</code>、<code>盲道分割</code>、<code>GPS</code> 和 <code>TTS</code> 串成一条可运行、可验证、可继续演进的实时感知链路。
