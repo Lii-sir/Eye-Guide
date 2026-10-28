@@ -1,0 +1,9 @@
+{
+  "type": "error",
+  "ok": false,
+  "seq": 6,
+  "payload": {
+    "code": "UNSUPPORTED_TYPE",
+    "message": "unsupported message type: unsupported.example"
+  }
+}

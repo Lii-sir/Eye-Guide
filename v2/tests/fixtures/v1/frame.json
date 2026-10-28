@@ -1,0 +1,16 @@
+{
+  "request": {
+    "type": "sensor.frame",
+    "device_id": "fixture-device",
+    "seq": 3,
+    "ts": 1700000000.0,
+    "session_id": "fixture-session",
+    "payload": {
+      "frame_id": "fixture-frame",
+      "client_ts": 1700000000000.0,
+      "image_b64": "AQID"
+    }
+  },
+  "response_type": "frame.accepted",
+  "response_fields": ["frame_id", "client_ts", "queue_mode", "replaced_frame_id", "dropped_pending_frames"]
+}

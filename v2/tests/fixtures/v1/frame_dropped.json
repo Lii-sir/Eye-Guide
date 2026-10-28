@@ -1,0 +1,11 @@
+{
+  "type": "frame.dropped",
+  "ok": true,
+  "seq": 5,
+  "payload": {
+    "frame_id": "pending-frame",
+    "client_ts": 1700000000000.0,
+    "reason": "replaced_by_newer_frame",
+    "replacement_frame_id": "newer-frame"
+  }
+}

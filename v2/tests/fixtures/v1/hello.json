@@ -1,0 +1,12 @@
+{
+  "request": {
+    "type": "hello",
+    "device_id": "fixture-device",
+    "seq": 1,
+    "ts": 1700000000.0,
+    "session_id": "fixture-session",
+    "payload": {"platform": "mobile-web-mvp"}
+  },
+  "response_type": "hello.ack",
+  "response_fields": ["session_id", "backend", "detail", "state", "frame_queue_mode", "stale_after_ms", "speech_policy"]
+}

@@ -1,0 +1,826 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "AUTH_EXPIRED",
+            "FORBIDDEN",
+            "DEVICE_REVOKED",
+            "NOT_FOUND",
+            "SESSION_CLOSED",
+            "CONNECTION_CONFLICT",
+            "UNSUPPORTED_VERSION",
+            "BAD_MESSAGE",
+            "BAD_FRAME",
+            "FRAME_TOO_LARGE",
+            "BUSY",
+            "REVISION_CONFLICT",
+            "IDEMPOTENCY_CONFLICT",
+            "MODEL_UNAVAILABLE",
+            "INTERNAL_ERROR"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "request_id"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "BlindRoad": {
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "not_detected",
+              "unavailable"
+            ]
+          }
+        }
+      },
+      "properties": {
+        "blocked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blocked"
+        },
+        "direction": {
+          "enum": [
+            "left",
+            "center",
+            "right",
+            "unknown"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "detected",
+            "not_detected",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "direction",
+        "blocked"
+      ],
+      "then": {
+        "properties": {
+          "blocked": {
+            "type": "null"
+          },
+          "direction": {
+            "const": "unknown"
+          }
+        }
+      },
+      "title": "BlindRoad",
+      "type": "object"
+    },
+    "Capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "fake",
+            "real"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "blind_road": {
+          "title": "Blind Road",
+          "type": "boolean"
+        },
+        "depth": {
+          "title": "Depth",
+          "type": "boolean"
+        },
+        "obstacles": {
+          "title": "Obstacles",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backend",
+        "obstacles",
+        "depth",
+        "blind_road"
+      ],
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "Detection": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          ],
+          "title": "Bbox",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "left",
+            "center",
+            "right",
+            "unknown"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "distance_meters": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distance Meters"
+        },
+        "label": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "confidence",
+        "bbox",
+        "direction"
+      ],
+      "title": "Detection",
+      "type": "object"
+    },
+    "ErrorMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/ApiError"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "error"
+      ],
+      "title": "ErrorMessage",
+      "type": "object"
+    },
+    "FrameAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "replaced_frame_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replaced Frame Id"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "frame.accepted",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "frame_id"
+      ],
+      "title": "FrameAccepted",
+      "type": "object"
+    },
+    "FrameDropped": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "replaced_by_newer_frame",
+            "expired_in_queue",
+            "session_stopped"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "replacement_frame_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replacement Frame Id"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "frame.dropped",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "frame_id",
+        "reason"
+      ],
+      "title": "FrameDropped",
+      "type": "object"
+    },
+    "FrameResult": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "expired",
+                  "unavailable"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "speech": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "hazard_level": {
+                "const": "unknown"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "blind_road": {
+          "$ref": "#/$defs/BlindRoad"
+        },
+        "captured_elapsed_ms": {
+          "minimum": 0,
+          "title": "Captured Elapsed Ms",
+          "type": "number"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "detections": {
+          "items": {
+            "$ref": "#/$defs/Detection"
+          },
+          "maxItems": 100,
+          "title": "Detections",
+          "type": "array"
+        },
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "hazard_level": {
+          "enum": [
+            "unknown",
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Hazard Level",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "server_processing_ms": {
+          "minimum": 0,
+          "title": "Server Processing Ms",
+          "type": "number"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "speech": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpeechDirective"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "expired",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "type": {
+          "const": "frame.result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "frame_id",
+        "captured_elapsed_ms",
+        "status",
+        "server_processing_ms",
+        "hazard_level",
+        "detections",
+        "blind_road"
+      ],
+      "title": "FrameResult",
+      "type": "object"
+    },
+    "PongMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "nonce": {
+          "format": "uuid",
+          "title": "Nonce",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "server_time": {
+          "format": "date-time",
+          "title": "Server Time",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "pong",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "nonce",
+        "server_time"
+      ],
+      "title": "PongMessage",
+      "type": "object"
+    },
+    "ReadyMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/SessionLimits"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "const": 0,
+          "default": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "session.ready",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "type",
+        "limits",
+        "capabilities"
+      ],
+      "title": "ReadyMessage",
+      "type": "object"
+    },
+    "SessionLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "heartbeat_interval_ms": {
+          "exclusiveMinimum": 0,
+          "maximum": 60000,
+          "title": "Heartbeat Interval Ms",
+          "type": "number"
+        },
+        "idle_timeout_ms": {
+          "exclusiveMinimum": 0,
+          "maximum": 300000,
+          "title": "Idle Timeout Ms",
+          "type": "number"
+        },
+        "max_frame_bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 3000000,
+          "title": "Max Frame Bytes",
+          "type": "integer"
+        },
+        "max_height": {
+          "exclusiveMinimum": 0,
+          "maximum": 8192,
+          "title": "Max Height",
+          "type": "integer"
+        },
+        "max_pixels": {
+          "exclusiveMinimum": 0,
+          "title": "Max Pixels",
+          "type": "integer"
+        },
+        "max_width": {
+          "exclusiveMinimum": 0,
+          "maximum": 8192,
+          "title": "Max Width",
+          "type": "integer"
+        },
+        "result_ttl_ms": {
+          "exclusiveMinimum": 0,
+          "maximum": 60000,
+          "title": "Result Ttl Ms",
+          "type": "number"
+        },
+        "upload_fps_limit": {
+          "exclusiveMinimum": 0,
+          "maximum": 60,
+          "title": "Upload Fps Limit",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "max_width",
+        "max_height",
+        "max_pixels",
+        "upload_fps_limit",
+        "result_ttl_ms",
+        "heartbeat_interval_ms",
+        "idle_timeout_ms"
+      ],
+      "title": "SessionLimits",
+      "type": "object"
+    },
+    "SpeechDirective": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "dedup_key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "priority": {
+          "enum": [
+            "normal",
+            "urgent"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "text",
+        "priority",
+        "dedup_key"
+      ],
+      "title": "SpeechDirective",
+      "type": "object"
+    },
+    "StoppedMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "stopping",
+            "ended"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "type": {
+          "const": "session.stopped",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "state"
+      ],
+      "title": "StoppedMessage",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "error": "#/$defs/ErrorMessage",
+      "frame.accepted": "#/$defs/FrameAccepted",
+      "frame.dropped": "#/$defs/FrameDropped",
+      "frame.result": "#/$defs/FrameResult",
+      "pong": "#/$defs/PongMessage",
+      "session.ready": "#/$defs/ReadyMessage",
+      "session.stopped": "#/$defs/StoppedMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ReadyMessage"
+    },
+    {
+      "$ref": "#/$defs/FrameAccepted"
+    },
+    {
+      "$ref": "#/$defs/FrameDropped"
+    },
+    {
+      "$ref": "#/$defs/FrameResult"
+    },
+    {
+      "$ref": "#/$defs/PongMessage"
+    },
+    {
+      "$ref": "#/$defs/StoppedMessage"
+    },
+    {
+      "$ref": "#/$defs/ErrorMessage"
+    }
+  ],
+  "title": "ServerMessage"
+}

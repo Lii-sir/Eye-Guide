@@ -1,0 +1,195 @@
+{
+  "$defs": {
+    "FrameMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_elapsed_ms": {
+          "minimum": 0,
+          "title": "Captured Elapsed Ms",
+          "type": "number"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 8192,
+          "title": "Height",
+          "type": "integer"
+        },
+        "image_jpeg_b64": {
+          "maxLength": 4000000,
+          "minLength": 4,
+          "title": "Image Jpeg B64",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "sensor.frame",
+          "title": "Type",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 8192,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "frame_id",
+        "captured_elapsed_ms",
+        "width",
+        "height",
+        "image_jpeg_b64"
+      ],
+      "title": "FrameMessage",
+      "type": "object"
+    },
+    "PingMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "nonce": {
+          "format": "uuid",
+          "title": "Nonce",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "ping",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "nonce"
+      ],
+      "title": "PingMessage",
+      "type": "object"
+    },
+    "StopMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "2.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "user_stop",
+            "app_background",
+            "screen_locked",
+            "client_error"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "session.stop",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "session_id",
+        "connection_id",
+        "seq",
+        "type",
+        "reason"
+      ],
+      "title": "StopMessage",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "ping": "#/$defs/PingMessage",
+      "sensor.frame": "#/$defs/FrameMessage",
+      "session.stop": "#/$defs/StopMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/FrameMessage"
+    },
+    {
+      "$ref": "#/$defs/PingMessage"
+    },
+    {
+      "$ref": "#/$defs/StopMessage"
+    }
+  ],
+  "title": "ClientMessage"
+}

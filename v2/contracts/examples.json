@@ -1,0 +1,290 @@
+{
+  "client_messages": [
+    {
+      "captured_elapsed_ms": 1000.0,
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "height": 2,
+      "image_jpeg_b64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwAooooA/9k=",
+      "protocol_version": "2.0",
+      "seq": 1,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "sensor.frame",
+      "width": 2
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "nonce": "00000000-0000-0000-0000-000000000007",
+      "protocol_version": "2.0",
+      "seq": 2,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "ping"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "protocol_version": "2.0",
+      "reason": "user_stop",
+      "seq": 3,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "session.stop"
+    }
+  ],
+  "http_models": [
+    {
+      "model": "UserView",
+      "value": {
+        "state": "active",
+        "user_id": "00000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "model": "RegisterDevice",
+      "value": {
+        "app_version": "0.1.0",
+        "installation_id": "00000000-0000-0000-0000-000000000008",
+        "label": "test-android",
+        "platform": "android"
+      }
+    },
+    {
+      "model": "DeviceView",
+      "value": {
+        "device_id": "00000000-0000-0000-0000-000000000002",
+        "state": "active",
+        "user_id": "00000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "model": "SettingsUpdate",
+      "value": {
+        "expected_revision": 0,
+        "values": {
+          "reminder_detail": "normal",
+          "speech_enabled": true,
+          "speech_rate": 1.0
+        }
+      }
+    },
+    {
+      "model": "SettingsView",
+      "value": {
+        "revision": 1,
+        "schema_version": 1,
+        "values": {
+          "reminder_detail": "normal",
+          "speech_enabled": true,
+          "speech_rate": 1.0
+        }
+      }
+    },
+    {
+      "model": "CreateSession",
+      "value": {
+        "device_id": "00000000-0000-0000-0000-000000000002",
+        "protocol_version": "2.0"
+      }
+    },
+    {
+      "model": "SessionView",
+      "value": {
+        "device_id": "00000000-0000-0000-0000-000000000002",
+        "session_id": "00000000-0000-0000-0000-000000000003",
+        "started_at": "2026-10-28T00:00:00Z",
+        "state": "created"
+      }
+    },
+    {
+      "model": "SessionPage",
+      "value": {
+        "items": [
+          {
+            "device_id": "00000000-0000-0000-0000-000000000002",
+            "session_id": "00000000-0000-0000-0000-000000000003",
+            "started_at": "2026-10-28T00:00:00Z",
+            "state": "created"
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "model": "StopSession",
+      "value": {
+        "reason": "user_stop"
+      }
+    },
+    {
+      "model": "ErrorResponse",
+      "value": {
+        "error": {
+          "code": "BUSY",
+          "message": "服务繁忙，请稍后重试",
+          "request_id": "00000000-0000-0000-0000-000000000007",
+          "retryable": true
+        }
+      }
+    }
+  ],
+  "server_messages": [
+    {
+      "capabilities": {
+        "backend": "fake",
+        "blind_road": false,
+        "depth": false,
+        "obstacles": false
+      },
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "limits": {
+        "heartbeat_interval_ms": 5000,
+        "idle_timeout_ms": 15000,
+        "max_frame_bytes": 1000000,
+        "max_height": 1280,
+        "max_pixels": 921600,
+        "max_width": 1280,
+        "result_ttl_ms": 1000,
+        "upload_fps_limit": 5
+      },
+      "protocol_version": "2.0",
+      "seq": 0,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "session.ready"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "protocol_version": "2.0",
+      "replaced_frame_id": null,
+      "seq": 1,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "frame.accepted"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "protocol_version": "2.0",
+      "reason": "replaced_by_newer_frame",
+      "replacement_frame_id": "00000000-0000-0000-0000-000000000006",
+      "seq": 1,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "frame.dropped"
+    },
+    {
+      "blind_road": {
+        "blocked": null,
+        "direction": "unknown",
+        "status": "unavailable"
+      },
+      "captured_elapsed_ms": 1000.0,
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "detections": [
+        {
+          "bbox": [
+            0.2,
+            0.1,
+            0.8,
+            0.9
+          ],
+          "confidence": 0.9,
+          "direction": "center",
+          "distance_meters": null,
+          "label": "person"
+        }
+      ],
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "hazard_level": "high",
+      "protocol_version": "2.0",
+      "seq": 1,
+      "server_processing_ms": 80.0,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "speech": {
+        "code": "OBSTACLE_AHEAD",
+        "dedup_key": "obstacle-front",
+        "priority": "urgent",
+        "text": "前方有行人"
+      },
+      "status": "ok",
+      "type": "frame.result"
+    },
+    {
+      "blind_road": {
+        "blocked": null,
+        "direction": "unknown",
+        "status": "unavailable"
+      },
+      "captured_elapsed_ms": 1000.0,
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "detections": [
+        {
+          "bbox": [
+            0.2,
+            0.1,
+            0.8,
+            0.9
+          ],
+          "confidence": 0.9,
+          "direction": "center",
+          "distance_meters": null,
+          "label": "person"
+        }
+      ],
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "hazard_level": "high",
+      "protocol_version": "2.0",
+      "seq": 1,
+      "server_processing_ms": 80.0,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "speech": null,
+      "status": "expired",
+      "type": "frame.result"
+    },
+    {
+      "blind_road": {
+        "blocked": null,
+        "direction": "unknown",
+        "status": "unavailable"
+      },
+      "captured_elapsed_ms": 1000.0,
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "detections": [],
+      "frame_id": "00000000-0000-0000-0000-000000000005",
+      "hazard_level": "unknown",
+      "protocol_version": "2.0",
+      "seq": 1,
+      "server_processing_ms": 80.0,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "speech": null,
+      "status": "unavailable",
+      "type": "frame.result"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "nonce": "00000000-0000-0000-0000-000000000007",
+      "protocol_version": "2.0",
+      "seq": 2,
+      "server_time": "2026-10-28T00:00:00Z",
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "pong"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "protocol_version": "2.0",
+      "seq": 3,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "state": "ended",
+      "type": "session.stopped"
+    },
+    {
+      "connection_id": "00000000-0000-0000-0000-000000000004",
+      "error": {
+        "code": "BUSY",
+        "message": "服务繁忙，请稍后重试",
+        "request_id": "00000000-0000-0000-0000-000000000007",
+        "retryable": true
+      },
+      "protocol_version": "2.0",
+      "seq": 1,
+      "session_id": "00000000-0000-0000-0000-000000000003",
+      "type": "error"
+    }
+  ]
+}

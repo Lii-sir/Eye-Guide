@@ -1,0 +1,34 @@
+{
+  "type": "frame.result",
+  "ok": true,
+  "seq": 3,
+  "payload": {
+    "frame_id": "fixture-frame",
+    "client_ts": 1700000000000.0,
+    "server_received_ts": 1700000000010.0,
+    "server_infer_started_ts": 1700000000020.0,
+    "server_sent_ts": 1700000000100.0,
+    "queue_mode": "single-slot-lifo",
+    "hazard_level": "none",
+    "hazard_summary": "环境相对安全",
+    "top_event": null,
+    "blind_road_detected": false,
+    "blind_road_blocked": false,
+    "blind_road_direction": null,
+    "route": null,
+    "location": null,
+    "imu": null,
+    "events": [],
+    "boxes": [],
+    "frame_shape": {"height": 1, "width": 1},
+    "overlays": [],
+    "backend": "fixture",
+    "timing": {
+      "queue_delay_ms": 10.0,
+      "infer_delay_ms": 80.0,
+      "result_age_ms": 100.0,
+      "stale_after_ms": 500.0,
+      "should_drop": false
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "request": {
+    "type": "ping",
+    "device_id": "fixture-device",
+    "seq": 2,
+    "ts": 1700000000.0,
+    "session_id": "fixture-session",
+    "payload": {}
+  },
+  "response_type": "pong",
+  "response_fields": ["server_ts"]
+}
